@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1e88e5">
+  <title>Sky Drift</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Canvas do jogo (também é a área de arrasto) -->
+  <canvas id="game"></canvas>
+
+  <!-- ================= HUD ================= -->
+  <div id="hud">
+    <div class="top">
+      <!-- Moedas -->
+      <div class="coins" id="coinPill">
+        <span class="coin-ico">★</span><span id="coinCount">0</span>
+      </div>
+      <!-- Nível + barra de progresso -->
+      <div class="level-box">
+        <div class="level-pill" id="levelText">NÍVEL 01</div>
+        <div class="bar"><div id="barFill"></div><span id="barText">0%</span></div>
+      </div>
+      <!-- Pausa -->
+      <button id="pauseBtn" class="pause" aria-label="Pausar"><span class="pause-ico"></span></button>
+    </div>
+
+    <!-- Velocímetro -->
+    <div class="bottom">
+      <div class="speed"><b id="speedVal">0</b><small>km/h</small></div>
+    </div>
+  </div>
+
+  <!-- Dica de controle (gesto de arrasto) -->
+  <div id="hint">
+    <div class="swipe">
+      <svg viewBox="0 0 220 110" width="200" height="100" aria-hidden="true">
+        <path d="M190 100 Q130 22 52 34" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="16" stroke-linecap="round"/>
+        <polygon points="20,36 62,12 60,58" fill="#fff" fill-opacity=".75"/>
+      </svg>
+      <span class="finger">👆</span>
+    </div>
+    <div class="hint-pill">ARRASTE ↑ PARA ANDAR</div>
+  </div>
+
+  <div id="banner"></div>
+  <div id="flash"></div>
+
+  <!-- ================= TELAS ================= -->
+  <div class="screen show" id="startScreen">
+    <div class="card">
+      <div class="logo">SKY<span>DRIFT</span></div>
+      <p class="sub">Corra pela pista suspensa sobre as nuvens!</p>
+      <ul class="rules">
+        <li>👆 Arraste para cima para acelerar, para baixo para frear</li>
+        <li>↔️ Arraste para os lados para virar o volante: nas curvas é você quem vira!</li>
+        <li>⌨️ No PC: segure ↑ para andar, ↓ freia, ← → vira</li>
+        <li>🌉 A pista não tem proteção: saiu da borda, caiu!</li>
+        <li>〰️ Passe pelos trechos estreitos e em zigue-zague</li>
+        <li>🕳️ Cuidado com buracos e bifurcações</li>
+        <li>⭐ Siga as moedas: elas mostram o caminho seguro</li>
+      </ul>
+      <button class="btn" id="startBtn">JOGAR</button>
+      <p class="best" id="bestStart"></p>
+    </div>
+  </div>
+
+  <div class="screen" id="pauseScreen">
+    <div class="card">
+      <h2>Pausado</h2>
+      <button class="btn" id="resumeBtn">CONTINUAR</button>
+      <button class="btn ghost" id="restartBtn2">REINICIAR</button>
+      <button class="btn ghost" id="soundBtn">🔊 SOM: LIGADO</button>
+    </div>
+  </div>
+
+  <div class="screen" id="overScreen">
+    <div class="card">
+      <h2 id="overReason">Fim de jogo</h2>
+      <div class="stats">
+        <div><b id="stCoins">0</b><span>moedas</span></div>
+        <div><b id="stDist">0</b><span>metros</span></div>
+        <div><b id="stLevel">1</b><span>nível</span></div>
+      </div>
+      <p class="best" id="bestOver"></p>
+      <button class="btn" id="restartBtn">REINICIAR</button>
+    </div>
+  </div>
+
+  <!-- Three.js via CDN (build clássico: funciona abrindo o arquivo direto) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
