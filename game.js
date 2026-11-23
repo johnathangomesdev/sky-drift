@@ -751,15 +751,42 @@ function isBraking() {
 
 /* ---------- SOM (Web Audio: tudo sintetizado, sem arquivos) ---------- */
 const Sound = (() => {
-  let ctx = null, master = null, noiseBuf = null, engine = null, screech = null, muted = false;
-  const VOL = 0.6;
+  let ctx = null, master = null, noiseBuf = null, engine = null, screech = null, muted = false, silentEl = null;
+  const VOL = 0.8;
+
+  // WAV silencioso gerado em código (usado para "acordar" o áudio no iOS)
+  function silentWav() {
+    const n = 800, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i); };
+    str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    str(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+    let s = ''; b.forEach(x => s += String.fromCharCode(x));
+    return 'data:audio/wav;base64,' + btoa(s);
+  }
+
+  // Desbloqueia o áudio. Precisa ser chamado DENTRO de um toque/clique do usuário.
+  function unlock() {
+    // iOS: faz o som tocar mesmo com a chave lateral no modo silencioso
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) { }
+    if (!silentEl) {
+      try { silentEl = new Audio(silentWav()); silentEl.loop = true; silentEl.setAttribute('playsinline', ''); } catch (_) { }
+    }
+    if (silentEl && silentEl.paused) { const p = silentEl.play(); if (p && p.catch) p.catch(() => { }); }
+    if (ctx && ctx.state !== 'running') ctx.resume();
+    if (ctx) {                                   // toca um buffer vazio (necessário em Safari antigo)
+      const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050); s.connect(ctx.destination); s.start(0);
+    }
+  }
 
   // Cria o contexto de áudio (precisa acontecer após um toque/clique do usuário)
   function init() {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    if (ctx) { unlock(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ctx = new AC();
+    unlock();
     master = ctx.createGain(); master.gain.value = muted ? 0 : VOL; master.connect(ctx.destination);
 
     // Ruído branco reutilizado em chiados e batidas
@@ -789,11 +816,12 @@ const Sound = (() => {
   function update(speed, thr, braking, turn, active) {
     if (!ctx) return;
     const t = ctx.currentTime, sp = clamp(speed / MAX_SPEED, 0, 1);
-    const freq = 42 + sp * 120 + thr * 30;                     // acelerando = tom sobe
+    // Frequências acima de ~70 Hz: alto-falante de celular não reproduz graves muito baixos
+    const freq = 70 + sp * 190 + thr * 40;                     // acelerando = tom sobe
     engine.o1.frequency.setTargetAtTime(freq, t, 0.06);
     engine.o2.frequency.setTargetAtTime(freq * 0.5, t, 0.06);
-    engine.f.frequency.setTargetAtTime(250 + sp * 1300 + thr * 900, t, 0.06);
-    engine.g.gain.setTargetAtTime(active ? 0.05 + thr * 0.09 + sp * 0.05 : 0, t, 0.08);
+    engine.f.frequency.setTargetAtTime(700 + sp * 2000 + thr * 1200, t, 0.06);
+    engine.g.gain.setTargetAtTime(active ? 0.08 + thr * 0.12 + sp * 0.06 : 0, t, 0.08);
 
     let sc = 0;
     if (active) {
@@ -830,7 +858,7 @@ const Sound = (() => {
   }
 
   return {
-    init, update,
+    init, update, unlock,
     crash() { noise(0.9, 1000, 1.0); noise(0.35, 3500, 0.35, 'highpass'); tone(95, 0.5, 'sine', 0.9, 30); },
     bump()  { noise(0.2, 700, 0.6); tone(150, 0.16, 'sine', 0.6, 60); },
     coin()  { tone(988, 0.08, 'square', 0.1); tone(1319, 0.2, 'square', 0.1, null, 0.07); },
@@ -1117,6 +1145,9 @@ function togglePause() {
   if (state === 'playing') { state = 'paused'; ui.pause.classList.add('show'); }
   else if (state === 'paused') { Sound.init(); state = 'playing'; ui.pause.classList.remove('show'); clock.getDelta(); }
 }
+// Todo toque na tela garante que o áudio está ativo (navegadores podem suspendê-lo)
+['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, () => { if (state !== 'menu') Sound.init(); }, { capture: true, passive: true }));
 $('soundBtn').addEventListener('click', () => {
   $('soundBtn').textContent = Sound.toggleMute() ? '🔇 SOM: DESLIGADO' : '🔊 SOM: LIGADO';
 });
