@@ -49,10 +49,15 @@
   <div id="flash"></div>
 
   <!-- ================= TELAS ================= -->
+  <!-- Menu inicial -->
   <div class="screen show" id="startScreen">
     <div class="card">
       <div class="logo">SKY<span>DRIFT</span></div>
       <p class="sub">Corra pela pista suspensa sobre as nuvens!</p>
+      <button class="btn big" id="startBtn">JOGAR</button>
+      <p class="best" id="bestStart"></p>
+      <details class="howto">
+        <summary>Como jogar</summary>
       <ul class="rules">
         <li>👆 Arraste para cima para acelerar, para baixo para frear</li>
         <li>↔️ Arraste para os lados para virar o volante: nas curvas é você quem vira!</li>
@@ -62,8 +67,18 @@
         <li>🕳️ Cuidado com buracos e bifurcações</li>
         <li>⭐ Siga as moedas: elas mostram o caminho seguro</li>
       </ul>
-      <button class="btn" id="startBtn">JOGAR</button>
-      <p class="best" id="bestStart"></p>
+      </details>
+    </div>
+  </div>
+
+  <!-- Garagem: escolha da cor do carro (o carro gira em 3D atrás) -->
+  <div class="screen garage" id="garageScreen">
+    <div class="garage-title">ESCOLHA SEU CARRO</div>
+    <div class="garage-panel">
+      <div class="skin-name" id="skinName">Vermelho Clássico</div>
+      <div class="swatches" id="swatches"></div>
+      <button class="btn" id="raceBtn">CORRER!</button>
+      <button class="btn ghost" id="backBtn">VOLTAR</button>
     </div>
   </div>
 
@@ -86,6 +101,7 @@
       </div>
       <p class="best" id="bestOver"></p>
       <button class="btn" id="restartBtn">REINICIAR</button>
+      <button class="btn ghost" id="garageBtn">TROCAR CARRO</button>
     </div>
   </div>
 

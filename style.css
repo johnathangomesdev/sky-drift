@@ -137,6 +137,34 @@ h2 { margin: 4px 0 16px; font-size: 28px; }
 }
 .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--orange-dark); }
 .btn.ghost { background: #eef2f8; color: var(--ink); box-shadow: 0 5px 0 #cdd5e2; }
+.btn.big { font-size: 26px; padding: 20px; }
+.howto { margin-top: 14px; text-align: left; }
+.howto summary { cursor: pointer; font-weight: 800; text-align: center; opacity: .75; }
+.howto .rules { margin: 10px 0 0; }
+
+/* ===== Garagem ===== */
+.screen.garage {
+  background: linear-gradient(rgba(10,30,70,.35), transparent 30%, transparent 55%, rgba(10,30,70,.45));
+  flex-direction: column; justify-content: space-between; align-items: center;
+  padding: calc(env(safe-area-inset-top) + 24px) 16px calc(env(safe-area-inset-bottom) + 18px);
+}
+.screen.garage.show { display: flex; }
+.garage-title {
+  color: #fff; font-weight: 900; font-size: clamp(26px, 7.5vw, 38px); letter-spacing: 1px;
+  text-shadow: 0 4px 0 var(--orange-dark), 0 8px 16px rgba(0,0,0,.3);
+}
+.garage-panel {
+  width: min(94vw, 400px); background: #fff; border: 4px solid #ffd45a; border-radius: 26px;
+  padding: 18px; text-align: center; box-shadow: 0 10px 0 rgba(0,0,0,.12), 0 20px 40px rgba(0,0,0,.25);
+}
+.skin-name { font-size: 22px; font-weight: 900; color: var(--ink); margin-bottom: 12px; }
+.swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 6px; }
+.swatch {
+  width: 50px; height: 50px; border-radius: 50%; cursor: pointer; border: 4px solid #fff;
+  box-shadow: 0 0 0 2px #cdd5e2, 0 3px 0 rgba(0,0,0,.2); transition: transform .15s;
+}
+.swatch.sel { transform: scale(1.15); box-shadow: 0 0 0 4px var(--orange), 0 3px 0 rgba(0,0,0,.2); }
+
 .stats { display: flex; justify-content: space-around; margin-bottom: 8px; }
 .stats div { display: flex; flex-direction: column; }
 .stats b { font-size: 30px; color: var(--orange); }

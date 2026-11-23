@@ -154,6 +154,26 @@ function turnSignTex(dir) {                                // placa redonda de c
   });
 }
 const texTurnL = turnSignTex(-1), texTurnR = turnSignTex(1);
+const texDots = canvasTex(128, 128, (g, w, h) => {         // pintura rosa de bolinhas brancas
+  g.fillStyle = '#ff5fa8'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ffffff';
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+    g.beginPath(); g.arc(x * 32 + (y % 2 ? 16 : 0) + 8, y * 32 + 16, 7, 0, Math.PI * 2); g.fill();
+  }
+});
+texDots.wrapS = texDots.wrapT = THREE.RepeatWrapping;
+texDots.repeat.set(2, 2);
+
+// Pinturas disponíveis na garagem
+const CAR_SKINS = [
+  { id: 'red',    name: 'Vermelho Clássico', body: 0xe5262b, stripe: 0xffffff, css: '#e5262b' },
+  { id: 'blue',   name: 'Azul Turbo',        body: 0x1f6fe5, stripe: 0xffffff, css: '#1f6fe5' },
+  { id: 'green',  name: 'Verde Limão',       body: 0x46c21f, stripe: 0x1b1b1b, css: '#46c21f' },
+  { id: 'yellow', name: 'Amarelo Táxi',      body: 0xffc21a, stripe: 0x1b1b1b, css: '#ffc21a' },
+  { id: 'black',  name: 'Preto Noturno',     body: 0x23252b, stripe: 0xff8a00, css: '#23252b' },
+  { id: 'pink',   name: 'Rosa Poá',          dots: true, bow: true,
+    css: 'radial-gradient(circle at 30% 30%, #fff 0 4px, transparent 5px), radial-gradient(circle at 70% 65%, #fff 0 4px, transparent 5px), #ff5fa8' },
+];
 
 const MAT = {
   track: new THREE.MeshLambertMaterial({ vertexColors: true }),
@@ -382,17 +402,19 @@ function mesh(geo, mat, x, y, z) { const m = new THREE.Mesh(geo, mat); m.positio
 function makeCar() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const red = lam(0xe5262b), glass = lam(0x1c2735, { emissive: 0x0a1420 }), chrome = lam(0xd5dbe2);
+  const stripeMat = lam(0xffffff), stripes = [];
   const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const stripe = m => { m.material = stripeMat; stripes.push(m); return m; };
   body.add(mesh(B(1.72, 0.5, 3.0), red, 0, 0.55, 0));                 // carroceria
   body.add(mesh(B(1.3, 0.5, 1.4), red, 0, 1.05, -0.25));              // cabine
   body.add(mesh(B(1.33, 0.3, 1.1), glass, 0, 1.08, -0.25));           // janelas laterais
   body.add(mesh(B(1.12, 0.36, 0.04), glass, 0, 1.06, -0.96));         // vidro traseiro
   body.add(mesh(B(1.12, 0.36, 0.04), glass, 0, 1.06, 0.46));          // para-brisa
   for (const sx of [-0.14, 0.14]) {                                    // faixas brancas de corrida
-    body.add(mesh(B(0.16, 0.02, 3.02), MAT.white, sx, 0.81, 0));
-    body.add(mesh(B(0.16, 0.02, 1.42), MAT.white, sx, 1.31, -0.25));
-    body.add(mesh(B(0.16, 0.5, 0.02), MAT.white, sx, 0.55, -1.51));
-    body.add(mesh(B(0.16, 0.075, 0.39), MAT.white, sx, 1.24, -1.32));
+    body.add(stripe(mesh(B(0.16, 0.02, 3.02), null, sx, 0.81, 0)));
+    body.add(stripe(mesh(B(0.16, 0.02, 1.42), null, sx, 1.31, -0.25)));
+    body.add(stripe(mesh(B(0.16, 0.5, 0.02), null, sx, 0.55, -1.51)));
+    body.add(stripe(mesh(B(0.16, 0.075, 0.39), null, sx, 1.24, -1.32)));
   }
   body.add(mesh(B(1.62, 0.07, 0.38), red, 0, 1.24, -1.32));           // aerofólio
   for (const sx of [-0.55, 0.55]) body.add(mesh(B(0.08, 0.32, 0.12), MAT.black, sx, 1.02, -1.3));
@@ -411,9 +433,36 @@ function makeCar() {
     w.add(mesh(hub, chrome));
     body.add(w); wheels.push(w);
   }
+  // Laço no teto (só aparece na pintura "Rosa Poá")
+  const bow = new THREE.Group(), bowMat = lam(0xe8175d);
+  const loop = new THREE.SphereGeometry(0.24, 14, 10);
+  for (const sx of [-1, 1]) {
+    const l = mesh(loop, bowMat, sx * 0.24, 0, 0);
+    l.scale.set(1.25, 0.8, 0.55); l.rotation.z = sx * 0.45;
+    bow.add(l);
+  }
+  bow.add(mesh(new THREE.SphereGeometry(0.11, 10, 8), bowMat));
+  bow.position.set(0, 1.45, -0.3);
+  bow.visible = false;
+  body.add(bow);
+
   shadowAll(root);
   scene.add(root);
-  return { root, body, wheels };
+  return { root, body, wheels, paint: red, stripeMat, stripes, bow };
+}
+
+// Aplica uma pintura da garagem ao carro e salva a escolha
+function applySkin(id) {
+  const k = CAR_SKINS.find(s => s.id === id) || CAR_SKINS[0];
+  car.skin = k.id;
+  if (k.dots) { car.paint.map = texDots; car.paint.color.setHex(0xffffff); }
+  else { car.paint.map = null; car.paint.color.setHex(k.body); }
+  car.paint.needsUpdate = true;
+  car.stripes.forEach(m => m.visible = !!k.stripe);
+  if (k.stripe) car.stripeMat.color.setHex(k.stripe);
+  car.bow.visible = !!k.bow;
+  try { localStorage.setItem('skydrift_skin', k.id); } catch (_) { }
+  return k;
 }
 
 // --- Obstáculos de trânsito ---
@@ -1028,7 +1077,12 @@ function updateCrashed(dt) {
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
 let camYaw = 0;
 function updateCamera(dt, snap) {
-  if (state === 'falling' || state === 'over') {
+  if (state === 'garage') {
+    // Garagem: câmera gira em volta do carro (carro fica na parte de cima da tela)
+    const p = car.root.position, a = time * 0.45;
+    camPos.set(p.x + Math.sin(a) * 6.5, p.y + 2.8, p.z + Math.cos(a) * 6.5);
+    camLook.set(p.x, p.y - 0.6, p.z);
+  } else if (state === 'falling' || state === 'over') {
     camLook.lerp(car.root.position, 1 - Math.exp(-dt * 6));
   } else {
     camYaw += (car.yaw - camYaw) * (snap ? 1 : 1 - Math.exp(-dt * 5));
@@ -1162,11 +1216,46 @@ function togglePause() {
 }
 // Todo toque na tela garante que o áudio está ativo (navegadores podem suspendê-lo)
 ['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev =>
-  window.addEventListener(ev, () => { if (state !== 'menu') Sound.init(); }, { capture: true, passive: true }));
+  window.addEventListener(ev, () => { if (state !== 'menu' && state !== 'garage') Sound.init(); }, { capture: true, passive: true }));
 $('soundBtn').addEventListener('click', () => {
   $('soundBtn').textContent = Sound.toggleMute() ? '🔇 SOM: DESLIGADO' : '🔊 SOM: LIGADO';
 });
-$('startBtn').addEventListener('click', startGame);
+/* ---------- Menu inicial → Garagem → Corrida ---------- */
+const garage = $('garageScreen'), swatchBox = $('swatches');
+let skinLoaded = 'red';
+try { skinLoaded = localStorage.getItem('skydrift_skin') || 'red'; } catch (_) { }
+function selectSkin(id) {
+  const k = applySkin(id);
+  $('skinName').textContent = k.name;
+  [...swatchBox.children].forEach(b => b.classList.toggle('sel', b.dataset.id === k.id));
+}
+// Um botão redondo por pintura
+CAR_SKINS.forEach(k => {
+  const b = document.createElement('button');
+  b.className = 'swatch'; b.dataset.id = k.id; b.style.background = k.css;
+  b.setAttribute('aria-label', k.name);
+  b.addEventListener('click', () => selectSkin(k.id));
+  swatchBox.appendChild(b);
+});
+selectSkin(skinLoaded);
+
+function openGarage() {
+  Sound.init();
+  resetWorld();
+  [ui.start, ui.pause, ui.over].forEach(s => s.classList.remove('show'));
+  garage.classList.add('show');
+  state = 'garage';
+}
+function backToMenu() {
+  garage.classList.remove('show');
+  ui.start.classList.add('show');
+  $('bestStart').textContent = bestText(loadBest());
+  resetWorld();                                 // volta a câmera para trás do carro
+}
+$('startBtn').addEventListener('click', openGarage);
+$('raceBtn').addEventListener('click', () => { garage.classList.remove('show'); startGame(); });
+$('backBtn').addEventListener('click', backToMenu);
+$('garageBtn').addEventListener('click', openGarage);
 $('restartBtn').addEventListener('click', startGame);
 $('restartBtn2').addEventListener('click', startGame);
 $('resumeBtn').addEventListener('click', togglePause);
