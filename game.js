@@ -108,7 +108,7 @@ for (let i = 0; i < 46; i++) {
     m.scale.setScalar(rand(0.9, 1.7));
     g.add(m);
   }
-  g.scale.setScalar(rand(3.5, 9));
+  g.scale.setScalar(rand(2.5, 6));
   scene.add(g); clouds.push(g);
 }
 
@@ -552,6 +552,7 @@ function generateNext() {
   };
   segments.push(seg);
   extendPath(seg);
+  clouds.forEach(cl => keepCloudBelowTrack(cl, seg.start, seg.end));   // pista nova não fica coberta
   if (opts.holes) makeHoles(seg);
   seg.mesh = buildTrackMesh(seg);
 
@@ -1058,7 +1059,21 @@ function updateCamera(dt, snap) {
 function placeCloud(cl, near) {
   const c = sample(car.s);
   const d = near ? rand(-60, 320) : rand(220, 360), side = rand(-1, 1) * 220;
-  cl.position.set(c.x + c.fx * d + c.rx * side, rand(-42, -8) + (Math.abs(side) > 40 ? rand(0, 14) : 0), c.z + c.fz * d + c.rz * side);
+  cl.position.set(c.x + c.fx * d + c.rx * side, rand(-42, -10) + (Math.abs(side) > 60 ? rand(0, 14) : 0), c.z + c.fz * d + c.rz * side);
+  keepCloudBelowTrack(cl, car.s - 30, genEnd);
+}
+
+// Se a nuvem estiver perto do traçado (entre s0 e s1), empurra ela para baixo
+// da pista para nunca tapar o caminho.
+function keepCloudBelowTrack(cl, s0, s1) {
+  const sc = cl.scale.x, R = sc * 4, top = sc * 2.6;           // raio horizontal e topo aproximados
+  const i0 = Math.max(0, Math.floor(s0)), i1 = Math.min(path.x.length - 1, Math.ceil(s1));
+  for (let i = i0; i <= i1; i += 3) {
+    const dx = cl.position.x - path.x[i], dz = cl.position.z - path.z[i];
+    if (dx * dx + dz * dz > (R + 8) * (R + 8)) continue;
+    const maxY = path.y[i] - T - 4 - top;                        // topo da nuvem abaixo da laje
+    if (cl.position.y > maxY) cl.position.y = maxY;
+  }
 }
 function updateClouds() {
   const c = sample(car.s);
