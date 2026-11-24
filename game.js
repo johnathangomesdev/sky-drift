@@ -32,6 +32,9 @@ const BEHIND = 40;         // quanto manter atrás antes de apagar
 const BASE_SPEED = 24, SPEED_PER_LEVEL = 3, MAX_SPEED = 46;   // velocidade máxima por nível
 const ACCEL = 12, COAST = 12, BRAKE = 30;   // aceleração, desaceleração ao soltar, freio
 const THROTTLE_PX = 0.12;                   // arrastar 12% da altura da tela para cima = acelerador no máximo
+// Câmbio: velocidade (m/s) em que cada marcha chega ao giro máximo
+const GEAR_TOP = [9, 15, 22, 30, 40, 50];
+const IDLE_RPM = 0.16, SHIFT_UP = 0.93, SHIFT_DOWN = 0.8, SHIFT_TIME = 0.2;
 
 const levelLen = L => 480 + 120 * (L - 1);
 function levelStartOf(L) { let s = 0; for (let i = 1; i < L; i++) s += levelLen(i); return s; }
@@ -56,11 +59,13 @@ scene.background = new THREE.Color(HORIZON);
 scene.fog = new THREE.Fog(HORIZON, 90, 420);
 
 const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1500);
+scene.add(camera);                        // linhas de velocidade ficam presas à câmera
+let baseFov = 70;
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  camera.fov = w < h ? 70 : 56;           // FOV maior em tela vertical
+  baseFov = camera.fov = w < h ? 70 : 56;  // FOV maior em tela vertical (abre um pouco com a velocidade)
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -163,6 +168,12 @@ const texDots = canvasTex(128, 128, (g, w, h) => {         // pintura rosa de bo
 });
 texDots.wrapS = texDots.wrapT = THREE.RepeatWrapping;
 texDots.repeat.set(2, 2);
+const texPuff = canvasTex(64, 64, (g, w, h) => {           // bolinha macia (fumaça, chama, brilho)
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.65)');
+  gr.addColorStop(0.7, 'rgba(255,255,255,.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
 
 // Pinturas disponíveis na garagem
 const CAR_SKINS = [
@@ -418,20 +429,29 @@ function makeCar() {
   }
   body.add(mesh(B(1.62, 0.07, 0.38), red, 0, 1.24, -1.32));           // aerofólio
   for (const sx of [-0.55, 0.55]) body.add(mesh(B(0.08, 0.32, 0.12), MAT.black, sx, 1.02, -1.3));
+  const tailMat = basic(0xff7a1a), glows = { tail: [], head: [] };
+  const glow = (color, x, y, z, s, o) => {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: texPuff, color, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sp.position.set(x, y, z); sp.scale.setScalar(s); body.add(sp); return sp;
+  };
   for (const sx of [-0.56, 0.56]) {
-    body.add(mesh(B(0.42, 0.15, 0.04), basic(0xff7a1a), sx, 0.66, -1.52));   // lanternas
+    body.add(mesh(B(0.42, 0.15, 0.04), tailMat, sx, 0.66, -1.52));          // lanternas
     body.add(mesh(B(0.36, 0.12, 0.04), basic(0xfff3c0), sx, 0.62, 1.52));    // faróis
+    glows.tail.push(glow(0xff3018, sx, 0.66, -1.6, 0.7, 0.35));
+    glows.head.push(glow(0xfff0c0, sx, 0.62, 1.6, 0.75, 0.45));
   }
   body.add(mesh(B(1.6, 0.18, 0.1), MAT.black, 0, 0.36, -1.5));        // para-choque
   const ex = new THREE.CylinderGeometry(0.08, 0.08, 0.22, 10).rotateX(Math.PI / 2);
   for (const sx of [-0.18, 0.18]) body.add(mesh(ex, chrome, sx, 0.33, -1.58));  // escapamento duplo
   const wGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.32, 18).rotateZ(Math.PI / 2);
   const hub = new THREE.CylinderGeometry(0.17, 0.17, 0.34, 10).rotateZ(Math.PI / 2);
-  const wheels = [];
+  const wheels = [], front = [];
   for (const sx of [-0.84, 0.84]) for (const sz of [-0.95, 0.95]) {
     const w = mesh(wGeo, MAT.tire, sx, 0.36, sz);
+    w.rotation.order = 'YXZ';                 // esterça (Y) e gira no eixo (X)
     w.add(mesh(hub, chrome));
     body.add(w); wheels.push(w);
+    if (sz > 0) front.push(w);
   }
   // Laço no teto (só aparece na pintura "Rosa Poá")
   const bow = new THREE.Group(), bowMat = lam(0xe8175d);
@@ -448,7 +468,7 @@ function makeCar() {
 
   shadowAll(root);
   scene.add(root);
-  return { root, body, wheels, paint: red, stripeMat, stripes, bow };
+  return { root, body, wheels, front, paint: red, stripeMat, stripes, bow, tailMat, glows };
 }
 
 // Aplica uma pintura da garagem ao carro e salva a escolha
@@ -743,6 +763,85 @@ function updateEffects(dt) {
     f.mesh.rotation.x += f.spin.x * dt; f.mesh.rotation.z += f.spin.z * dt;
     if (f.life <= 0) { scene.remove(f.mesh); flying.splice(i, 1); }
   }
+  for (let i = puffs.length - 1; i >= 0; i--) {     // fumaça / chama / brilho
+    const p = puffs[i]; p.life -= dt;
+    const k = 1 - p.life / p.max;
+    p.v.multiplyScalar(Math.exp(-p.drag * dt)); p.v.y += p.rise * dt;
+    p.sp.position.addScaledVector(p.v, dt);
+    p.sp.scale.setScalar(p.size * (1 + p.grow * k));
+    p.sp.material.opacity = p.op * (1 - k) * (1 - k);
+    if (p.c1) p.sp.material.color.copy(p.c0).lerp(p.c1, Math.min(1, k * 1.6));
+    if (p.life <= 0) { scene.remove(p.sp); (p.add ? puffPoolAdd : puffPool).push(p.sp); puffs.splice(i, 1); }
+  }
+}
+
+// Partículas macias (sprites): fumaça (normal) e chama/brilho (aditivo)
+const puffs = [], puffPool = [], puffPoolAdd = [];
+function puff(pos, o) {
+  if (puffs.length > 260) return;
+  const add = !!o.add, pool = add ? puffPoolAdd : puffPool;
+  const sp = pool.pop() || new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texPuff, transparent: true, depthWrite: false, blending: add ? THREE.AdditiveBlending : THREE.NormalBlending,
+  }));
+  sp.material.color.setHex(o.color);
+  sp.material.rotation = rand(0, Math.PI * 2);
+  sp.position.copy(pos);
+  sp.scale.setScalar(o.size);
+  scene.add(sp);
+  const life = o.life * rand(0.8, 1.2);
+  puffs.push({
+    sp, add, life, max: life, size: o.size, grow: o.grow || 1.5, op: o.opacity || 0.6,
+    v: o.v ? o.v.clone() : new THREE.Vector3(), drag: o.drag || 2.5, rise: o.rise || 0,
+    c0: o.color2 ? new THREE.Color(o.color) : null, c1: o.color2 ? new THREE.Color(o.color2) : null,
+  });
+}
+
+// Marcas de pneu: plaquinhas escuras no chão, reaproveitadas em anel
+const SKID_MAX = 280;
+const skidGeo = new THREE.PlaneGeometry(0.3, 0.75).rotateX(-Math.PI / 2);
+const skidMat = new THREE.MeshBasicMaterial({ color: 0x3a1c08, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const skids = []; let skidIdx = 0;
+// Liga o ponto anterior (a) ao atual (b) com uma faixa contínua
+function addSkid(a, b, y) {
+  const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+  if (len < 0.05 || len > 4) return;
+  let m = skids[skidIdx];
+  if (!m) { m = skids[skidIdx] = new THREE.Mesh(skidGeo, skidMat); scene.add(m); }
+  m.position.set((a.x + b.x) / 2, y + 0.05, (a.z + b.z) / 2);
+  m.rotation.y = Math.atan2(dx, dz); m.scale.z = (len + 0.1) / 0.75; m.visible = true;
+  skidIdx = (skidIdx + 1) % SKID_MAX;
+}
+function clearSkids() { skids.forEach(m => m.visible = false); skidPrev.length = 0; }
+
+// Linhas de velocidade: riscos finos presos à câmera, voando para fora da tela
+const streakMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, fog: false });
+const streakGeo = new THREE.BoxGeometry(0.035, 0.035, 1);
+const streaks = [];
+function resetStreak(m, anyZ) {
+  const z = anyZ ? rand(-32, -6) : rand(-34, -26);
+  const th = Math.tan(baseFov * Math.PI / 360) * -z, a = rand(0, Math.PI * 2), r = rand(0.55, 1.05);
+  m.position.set(Math.cos(a) * r * th * camera.aspect, Math.sin(a) * r * th, z);
+}
+for (let i = 0; i < 44; i++) { const m = new THREE.Mesh(streakGeo, streakMat); m.renderOrder = 5; resetStreak(m, true); camera.add(m); streaks.push(m); }
+function updateStreaks(dt) {
+  const k = state === 'playing' ? clamp((car.speed - 18) / 24, 0, 1) : 0;
+  streakMat.opacity += (k * 0.5 - streakMat.opacity) * Math.min(1, dt * 4);
+  const vis = streakMat.opacity > 0.01;
+  for (const m of streaks) {
+    m.visible = vis;
+    if (!vis) continue;
+    m.position.z += car.speed * dt * 1.8;
+    m.scale.z = 1.5 + car.speed * 0.14;
+    if (m.position.z > -1) resetStreak(m, false);
+  }
+}
+
+// Vinheta de velocidade (CSS)
+const speedFxEl = document.getElementById('speedfx');
+let speedFxOp = -1;
+function updateSpeedFx() {
+  const v = state === 'playing' ? Math.round(clamp((car.speed - 22) / 22, 0, 1) * 20) / 20 : 0;
+  if (v !== speedFxOp) { speedFxOp = v; speedFxEl.style.opacity = v; }
 }
 
 let shake = 0;
@@ -844,54 +943,78 @@ const Sound = (() => {
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
 
-    // Motor: dente-de-serra + quadrada (oitava abaixo) num filtro passa-baixa ressonante
-    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
-    o1.type = 'sawtooth'; o2.type = 'square';
-    const sub = ctx.createGain(); sub.gain.value = 0.5;
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400; f.Q.value = 5;
-    const g = ctx.createGain(); g.gain.value = 0;
-    o1.connect(f); o2.connect(sub); sub.connect(f); f.connect(g); g.connect(master);
-    o1.start(); o2.start();
-    engine = { o1, o2, f, g };
+    // Motor grave: duas dentes-de-serra levemente desafinadas + quadrada uma oitava abaixo,
+    // saturação suave (ronco e harmônicos que o alto-falante do celular consegue tocar)
+    // e passa-baixa. Uma LFO na metade da frequência pulsa o volume (explosões dos cilindros).
+    const osc = type => { const o = ctx.createOscillator(); o.type = type; o.start(); return o; };
+    const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+    const o1 = osc('sawtooth'), o2 = osc('sawtooth'), o3 = osc('square'), lfo = osc('sine');
+    o2.detune.value = 14;
+    const mix = gain(0.45), g2 = gain(0.7), sub = gain(0.8);
+    o1.connect(mix); o2.connect(g2); g2.connect(mix); o3.connect(sub); sub.connect(mix);
+    const shaper = ctx.createWaveShaper(), curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(x * 2.4) / Math.tanh(2.4); }
+    shaper.curve = curve; shaper.oversample = '2x';
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400; f.Q.value = 2.2;
+    const am = gain(0.75), lfoG = gain(0.25);
+    lfo.connect(lfoG); lfoG.connect(am.gain);
+    const cut = gain(1);                       // corte de giro na troca de marcha
+    const g = gain(0);
+    mix.connect(shaper); shaper.connect(f); f.connect(am); am.connect(cut); cut.connect(g); g.connect(master);
+    engine = { o1, o2, o3, lfo, f, g, cut };
 
-    // Chiado de pneu: ruído em loop num passa-banda agudo, volume controlado
+    // Chiado de pneu: ruído em loop num passa-banda, volume controlado
     const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
-    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 7;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 6;
     const sg = ctx.createGain(); sg.gain.value = 0;
     n.connect(bp); bp.connect(sg); sg.connect(master); n.start();
     screech = { g: sg, bp };
   }
 
   // Chamado todo quadro: rotação do motor e chiado acompanham o carro
-  function update(speed, thr, braking, turn, active) {
+  // rpm: 0..1 (giro do motor dentro da marcha), slip: 0..1 (pneu derrapando)
+  function update(rpm, thr, slip, active) {
     if (!ctx) return;
-    const t = ctx.currentTime, sp = clamp(speed / MAX_SPEED, 0, 1);
-    // Frequências acima de ~70 Hz: alto-falante de celular não reproduz graves muito baixos
-    const freq = 70 + sp * 190 + thr * 40;                     // acelerando = tom sobe
-    engine.o1.frequency.setTargetAtTime(freq, t, 0.06);
-    engine.o2.frequency.setTargetAtTime(freq * 0.5, t, 0.06);
-    engine.f.frequency.setTargetAtTime(700 + sp * 2000 + thr * 1200, t, 0.06);
-    engine.g.gain.setTargetAtTime(active ? 0.08 + thr * 0.12 + sp * 0.06 : 0, t, 0.08);
+    const t = ctx.currentTime;
+    // Fundamental grave (≈45–135 Hz); a saturação gera os harmônicos que dão o "ronco"
+    const freq = 38 + rpm * 97;
+    engine.o1.frequency.setTargetAtTime(freq, t, 0.03);
+    engine.o2.frequency.setTargetAtTime(freq, t, 0.03);
+    engine.o3.frequency.setTargetAtTime(freq * 0.5, t, 0.03);
+    engine.lfo.frequency.setTargetAtTime(freq * 0.5, t, 0.03);
+    engine.f.frequency.setTargetAtTime(330 + rpm * 1000 + thr * 450, t, 0.05);
+    engine.g.gain.setTargetAtTime(active ? 0.11 + thr * 0.12 + rpm * 0.05 : 0, t, 0.08);
 
-    let sc = 0;
-    if (active) {
-      if (braking) sc = Math.min(1, speed / 10);                             // freada
-      sc = Math.max(sc, clamp((turn - 0.9) * 0.6, 0, 1) * Math.min(1, speed / 18));   // curva fechada
+    const sc = active ? slip : 0;
+    screech.g.gain.setTargetAtTime(sc * 0.18, t, 0.04);
+    screech.bp.frequency.setTargetAtTime(1300 + sc * 600, t, 0.05);
+  }
+
+  // Troca de marcha: corta o giro por um instante; na subida o escapamento estoura
+  function shift(up) {
+    if (!ctx) return;
+    const t = ctx.currentTime, c = engine.cut.gain;
+    c.cancelScheduledValues(t);
+    c.setTargetAtTime(up ? 0.22 : 0.6, t, 0.015);
+    c.setTargetAtTime(1, t + (up ? SHIFT_TIME * 0.8 : 0.08), 0.05);
+    noise(0.05, 900, 0.18, 'bandpass');                     // "clac" do câmbio
+    if (up) {
+      noise(0.16, 520, 0.7, 'lowpass', 0.035);              // estouro do escapamento
+      tone(62, 0.14, 'sine', 0.5, 38, 0.035);
+      if (Math.random() < 0.55) noise(0.1, 650, 0.45, 'lowpass', 0.11);   // segundo estalo
     }
-    screech.g.gain.setTargetAtTime(sc * 0.22, t, 0.04);
-    screech.bp.frequency.setTargetAtTime(1900 + sc * 900, t, 0.05);
   }
 
   // Rajada de ruído filtrado com decaimento (batidas)
-  function noise(dur, freq, vol, type) {
+  function noise(dur, freq, vol, type, delay) {
     if (!ctx) return;
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + (delay || 0);
     const s = ctx.createBufferSource(); s.buffer = noiseBuf;
     const f = ctx.createBiquadFilter(); f.type = type || 'lowpass'; f.frequency.value = freq;
     const g = ctx.createGain();
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     s.connect(f); f.connect(g); g.connect(master);
-    s.start(t); s.stop(t + dur);
+    s.start(t, Math.random() * Math.max(0, 0.95 - dur)); s.stop(t + dur);
   }
   // Tom simples com glissando opcional
   function tone(freq, dur, type, vol, freqEnd, delay) {
@@ -908,7 +1031,7 @@ const Sound = (() => {
   }
 
   return {
-    init, update, unlock,
+    init, update, unlock, shift,
     crash() { noise(0.9, 1000, 1.0); noise(0.35, 3500, 0.35, 'highpass'); tone(95, 0.5, 'sine', 0.9, 30); },
     bump()  { noise(0.2, 700, 0.6); tone(150, 0.16, 'sine', 0.6, 60); },
     coin()  { tone(988, 0.08, 'square', 0.1); tone(1319, 0.2, 'square', 0.1, null, 0.07); },
@@ -924,8 +1047,54 @@ let level = 1, coins = 0, stateT = 0;
 // O carro se move LIVRE no mundo (px, pz, yaw). A pista não o guia:
 // a cada quadro projetamos a posição na linha central para obter
 // s (distância ao longo da pista) e x (deslocamento lateral) e checar o chão.
-const car = Object.assign(makeCar(), { px: 0, pz: 0, yaw: 0, turnRate: 0, s: 12, x: 0, speed: 0 });
+const CAR_RESET = { s: 12, x: 0, speed: 0, turnRate: 0, gear: 0, rpm: IDLE_RPM, shiftT: 0, thr: 0, braking: false, slip: 0, pitch: 0, pitchV: 0, fovKick: 0, skidAcc: 0, exhaustAcc: 0 };
+const car = Object.assign(makeCar(), { px: 0, pz: 0, yaw: 0 }, CAR_RESET);
 const fallVel = new THREE.Vector3();
+const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
+// Pontos no carro (coordenadas locais do corpo)
+const EXHAUST = [new THREE.Vector3(-0.18, 0.33, -1.72), new THREE.Vector3(0.18, 0.33, -1.72)];
+const REAR_WHEELS = [new THREE.Vector3(-0.84, 0.05, -0.95), new THREE.Vector3(0.84, 0.05, -0.95)];
+const skidPrev = [];
+
+/* ---------- Câmbio ---------- */
+function updateGearbox(dt, thr) {
+  const rpmIn = g => car.speed / GEAR_TOP[g];
+  if (car.shiftT > 0) car.shiftT -= dt;
+  else if (car.gear < GEAR_TOP.length - 1 && thr > 0.2 && rpmIn(car.gear) >= SHIFT_UP) shiftGear(1);
+  else if (car.gear > 0 && rpmIn(car.gear - 1) < SHIFT_DOWN) shiftGear(-1);
+  // Parado com acelerador o motor "ronca" um pouco acima da marcha lenta
+  let target = Math.max(IDLE_RPM + thr * 0.14, rpmIn(car.gear));
+  // Limitador de giro na última marcha
+  if (target > 0.985) target = 0.985 + Math.sin(time * 55) * 0.02 * thr;
+  const k = car.shiftT > 0 ? 16 : 9;
+  car.rpm += (Math.min(1.02, target) - car.rpm) * Math.min(1, dt * k);
+}
+function shiftGear(dir) {
+  car.gear += dir;
+  car.shiftT = dir > 0 ? SHIFT_TIME : 0.1;
+  Sound.shift(dir > 0);
+  restartAnim(ui.gear, 'bump');
+  if (dir > 0) {
+    car.pitchV += 0.9;                         // carroceria "mergulha" no corte de giro
+    car.fovKick = 3.5;
+    exhaustFx(true);
+  }
+}
+function exhaustFx(pop) {
+  car.body.updateMatrixWorld(true);
+  const back = tmpV2.set(-Math.sin(car.yaw), 0, -Math.cos(car.yaw));
+  for (const e of EXHAUST) {
+    const p = car.body.localToWorld(tmpV.copy(e));
+    if (pop) {
+      // Chama do escapamento: núcleo azulado → laranja, e fumaça escura
+      for (let i = 0; i < 3; i++) puff(p, { color: 0xbfe0ff, color2: 0xff7a1a, add: true, size: 0.35, grow: 1.4, life: 0.16, opacity: 0.95, v: back.clone().multiplyScalar(rand(4, 9)).add(new THREE.Vector3(rand(-0.6, 0.6), rand(0, 0.6), 0)), drag: 9 });
+      puff(p, { color: 0xffb040, add: true, size: 0.9, grow: 0.6, life: 0.12, opacity: 0.8 });
+      puff(p, { color: 0x555a62, size: 0.45, grow: 2.6, life: 0.7, opacity: 0.45, v: back.clone().multiplyScalar(2), rise: 1.2 });
+    } else {
+      puff(p, { color: 0xd8dde4, size: 0.22, grow: 3, life: 0.55, opacity: 0.22 + car.thr * 0.2, v: back.clone().multiplyScalar(1.5).add(new THREE.Vector3(0, 0.4, 0)), rise: 0.8 });
+    }
+  }
+}
 
 function projectCar() {
   let s = car.s;
@@ -947,9 +1116,23 @@ function placeCar(dt) {
   // Inclinação de subida/descida medida na direção em que o carro aponta
   const along = Math.cos(car.yaw - c.h);
   const c1 = sample(car.s - 1.5), c2 = sample(car.s + 1.5);
-  car.body.rotation.x = -Math.atan2(c2.y - c1.y, 3) * along;
+  car.body.rotation.x = -Math.atan2(c2.y - c1.y, 3) * along + car.pitch;
   car.body.rotation.z = clamp(car.turnRate * 0.05, -0.12, 0.12);                  // inclina ao virar
   car.wheels.forEach(w => w.rotation.x += car.speed * (dt || 0) / 0.36);
+  const steer = clamp(car.turnRate * 0.28, -0.45, 0.45);
+  car.front.forEach(w => w.rotation.y = steer);
+}
+
+// Mola da carroceria: empina ao acelerar, abaixa o nariz ao frear
+function updateBody(dt, accelerating) {
+  const target = car.braking ? 0.045 : accelerating ? -0.03 * car.thr : 0;
+  car.pitchV += (target - car.pitch) * 140 * dt;
+  car.pitchV *= Math.exp(-11 * dt);
+  car.pitch = clamp(car.pitch + car.pitchV * dt, -0.08, 0.09);
+  // Lanternas acendem forte na freada
+  const b = car.braking;
+  car.tailMat.color.setHex(b ? 0xff2a12 : 0xff7a1a);
+  car.glows.tail.forEach(g => { g.material.opacity = b ? 1 : 0.35; g.scale.setScalar(b ? 1.25 : 0.7); });
 }
 
 function updatePlaying(dt) {
@@ -958,8 +1141,12 @@ function updatePlaying(dt) {
   car.thr = thr; car.braking = braking && car.speed > 2;      // usados pelo som
   const target = Math.min(MAX_SPEED, BASE_SPEED + (level - 1) * SPEED_PER_LEVEL) * thr;
   if (thr > 0.05) hideHintSoon();
-  if (car.speed < target) car.speed = Math.min(target, car.speed + ACCEL * dt);
+  const accelerating = car.speed < target;
+  // Durante a troca de marcha (subida) quase não há tração
+  const accel = ACCEL * (car.shiftT > 0 && car.gear > 0 ? 0.2 : 1.12);
+  if (accelerating) car.speed = Math.min(target, car.speed + accel * dt);
   else car.speed = Math.max(target, car.speed - (braking ? BRAKE : COAST) * dt);
+  updateGearbox(dt, thr);
 
   // Direção: só muda pelo jogador (arrasto ou ← →). Nada de seguir a curva sozinho.
   const yawPrev = car.yaw;
@@ -972,7 +1159,29 @@ function updatePlaying(dt) {
   car.pz += Math.cos(car.yaw) * car.speed * dt;
   ensureTrack();
   projectCar();
+  updateBody(dt, accelerating);
   placeCar(dt);
+
+  // Derrapagem (freada forte ou curva fechada): chiado, fumaça e marcas no chão
+  let slip = car.braking ? Math.min(1, car.speed / 10) : 0;
+  slip = Math.max(slip, clamp((Math.abs(car.turnRate) - 0.9) * 0.6, 0, 1) * Math.min(1, car.speed / 18));
+  car.slip = slip;
+  if (slip > 0.25) {
+    car.root.updateMatrixWorld(true);
+    const y = sample(car.s).y;
+    car.skidAcc += car.speed * dt;
+    const smoke = car.skidAcc > 0.55;
+    if (smoke) car.skidAcc = 0;
+    REAR_WHEELS.forEach((w, i) => {
+      const p = car.root.localToWorld(tmpV.copy(w));
+      if (skidPrev[i]) addSkid(skidPrev[i], p, y);
+      skidPrev[i] = p.clone();
+      if (smoke) puff(p, { color: 0xf2f2f2, size: 0.5, grow: 3.2, life: 0.9, opacity: 0.35 * slip, v: new THREE.Vector3(rand(-1, 1), rand(0.6, 1.6), rand(-1, 1)), rise: 0.6 });
+    });
+  } else skidPrev.length = 0;
+  // Fumacinha do escapamento acelerando
+  car.exhaustAcc += dt * (accelerating ? 6 + car.thr * 10 : 2.5);
+  if (car.exhaustAcc > 1) { car.exhaustAcc = 0; exhaustFx(false); }
 
   // Sem chão embaixo do centro do carro (ou fora da pista existente) → cai
   const onTrack = segAt(car.s) && intervalsAt(car.s).some(iv => car.x >= iv[0] - FALL_TOL && car.x <= iv[1] + FALL_TOL);
@@ -1024,6 +1233,8 @@ function hitObstacle(o) {
   if (o.heavy) {                            // batida forte: fim de jogo
     knock(o, car.speed * 0.5);
     burst(p, [0xe3262b, 0xffffff, 0x333333, 0xff8a00, 0xffc21a], 50, 8, 10, 1.0);
+    puff(p, { color: 0xffe2a0, add: true, size: 3.2, grow: 0.8, life: 0.25, opacity: 1 });          // clarão
+    for (let i = 0; i < 10; i++) puff(p, { color: 0xff8a20, color2: 0x3a3a3e, size: rand(0.8, 1.4), grow: 2.5, life: 1.3, opacity: 0.7, v: new THREE.Vector3(rand(-4, 4), rand(1, 5), rand(-4, 4)), rise: 1.5, drag: 2 });
     flash('rgba(255,40,40,.8)'); shake = 0.9;
     Sound.crash();
     car.speed = 0; state = 'crashed'; stateT = 0;
@@ -1031,6 +1242,7 @@ function hitObstacle(o) {
     knock(o, car.speed * 0.9);
     car.speed *= o.slow;
     burst(p, o.type === 'cone' ? [0xff5a0a, 0xffffff] : [0x222222, 0x555555], 18, 5, 7, 0.7);
+    for (let i = 0; i < 5; i++) puff(p, { color: 0xe8dccb, size: 0.7, grow: 2, life: 0.7, opacity: 0.45, v: new THREE.Vector3(rand(-3, 3), rand(0.5, 2.5), rand(-3, 3)), rise: 0.5 });
     flash('rgba(255,90,40,.55)'); shake = 0.35;
     Sound.bump();
     if (navigator.vibrate) navigator.vibrate(40);
@@ -1046,6 +1258,7 @@ function checkCoins() {
       scene.remove(c.mesh);
       burst(c.mesh.position, [0xffc21a, 0xffe36b, 0xffffff], 14, 4, 6, 0.6);
       ringFx(c.mesh.position);
+      puff(c.mesh.position, { color: 0xfff0a0, add: true, size: 1.6, grow: 0.7, life: 0.22, opacity: 0.9 });
       restartAnim(ui.coinPill, 'bump');
     }
   });
@@ -1100,6 +1313,10 @@ function updateCamera(dt, snap) {
     shake = Math.max(0, shake - dt * 1.6);
   }
   camera.lookAt(camLook);
+  // FOV abre com a velocidade e dá um "tranco" em cada troca de marcha
+  car.fovKick = Math.max(0, car.fovKick - dt * 12);
+  const fov = baseFov + (state === 'playing' ? clamp(car.speed / MAX_SPEED, 0, 1) * 9 : 0) + car.fovKick;
+  if (Math.abs(camera.fov - fov) > 0.01) { camera.fov += (fov - camera.fov) * (snap ? 1 : Math.min(1, dt * 8)); camera.updateProjectionMatrix(); }
 
   // Céu, mar de nuvens e sol acompanham o jogador
   sky.position.copy(camera.position);
@@ -1141,7 +1358,7 @@ function updateClouds() {
 const $ = id => document.getElementById(id);
 const ui = {
   coinPill: $('coinPill'), coinCount: $('coinCount'), levelText: $('levelText'), barFill: $('barFill'), barText: $('barText'),
-  speedVal: $('speedVal'), hint: $('hint'), banner: $('banner'),
+  speedVal: $('speedVal'), gear: $('gearVal'), rpmFill: $('rpmFill'), hint: $('hint'), banner: $('banner'),
   start: $('startScreen'), pause: $('pauseScreen'), over: $('overScreen'),
 };
 const hudCache = {};
@@ -1153,6 +1370,12 @@ function updateHUD() {
   const pct = Math.floor(prog * 100) + '%';
   if (hudCache.p !== pct) { hudCache.p = pct; ui.barFill.style.width = pct; ui.barText.textContent = pct; }
   setText(ui.speedVal, 's', String(Math.round(car.speed * 3.6)));
+  setText(ui.gear, 'g', String(car.gear + 1));
+  const rpm = Math.round(clamp(car.rpm, 0, 1) * 50) * 2;
+  if (hudCache.r !== rpm) {
+    hudCache.r = rpm; ui.rpmFill.style.width = rpm + '%';
+    ui.rpmFill.parentNode.classList.toggle('red', rpm >= 90);
+  }
 }
 function showBanner(text) { ui.banner.textContent = text; restartAnim(ui.banner, 'show'); }
 function showHint() { clearTimeout(hintTimer); hintTimer = 0; ui.hint.classList.add('show'); }   // some quando o jogador acelerar
@@ -1189,10 +1412,13 @@ function resetWorld() {
   flying.forEach(f => scene.remove(f.mesh)); flying = [];
   parts.forEach(p => { scene.remove(p.m); partPool.push(p.m); }); parts.length = 0;
   rings.forEach(r => scene.remove(r.m)); rings.length = 0;
+  puffs.forEach(p => { scene.remove(p.sp); (p.add ? puffPoolAdd : puffPool).push(p.sp); }); puffs.length = 0;
+  clearSkids();
   resetPath();
   genEnd = 0; genLevel = 1; genLevelEnd = levelLen(1);
   level = 1; coins = 0; shake = 0;
-  Object.assign(car, { s: 12, x: 0, speed: 0, turnRate: 0 });
+  Object.assign(car, CAR_RESET);
+  updateBody(0, false);
   car.body.rotation.set(0, 0, 0); car.body.position.set(0, 0, 0);
   ensureTrack();
   const c0 = sample(car.s);                     // começa no centro, apontando ao longo da pista
@@ -1283,11 +1509,13 @@ function loop() {
     updateEffects(dt);
     updateClouds();
     updateCamera(dt, false);
+    updateStreaks(dt);
+    updateSpeedFx();
     updateHUD();
   }
   // Motor e pneus: só soam durante a corrida (silenciam na pausa, queda e fim)
   const active = state === 'playing';
-  Sound.update(car.speed, active ? car.thr || 0 : 0, active && car.braking, Math.abs(car.turnRate), active);
+  Sound.update(car.rpm, active ? car.thr || 0 : 0, active ? car.slip : 0, active);
   renderer.render(scene, camera);
 }
 function nearbyVisible(fn) { for (const seg of segments) { if (seg.start > car.s + 150) break; fn(seg); } }

@@ -29,7 +29,13 @@
 
     <!-- Velocímetro -->
     <div class="bottom">
-      <div class="speed"><b id="speedVal">0</b><small>km/h</small></div>
+      <div class="speed">
+        <span class="gear" id="gearVal">1</span>
+        <div class="speed-col">
+          <div><b id="speedVal">0</b><small>km/h</small></div>
+          <div class="rpm"><i id="rpmFill"></i></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -45,6 +51,7 @@
     <div class="hint-pill">ARRASTE ↑ PARA ANDAR</div>
   </div>
 
+  <div id="speedfx"></div>
   <div id="banner"></div>
   <div id="flash"></div>
 
