@@ -28,13 +28,15 @@ const FALL_TOL = 0.2;      // quanto o centro do carro pode passar da borda ante
 const TURN_SENS = 1.8;     // radianos de giro por "largura de tela" arrastada
 const TURN_KEY = 1.6;      // radianos/segundo ao segurar ← →
 const AHEAD = 360;         // quanto de pista gerar à frente
-const BEHIND = 40;         // quanto manter atrás antes de apagar
+const BEHIND = 90;         // quanto manter atrás antes de apagar (espaço para dar ré)
 const BASE_SPEED = 24, SPEED_PER_LEVEL = 3, MAX_SPEED = 46;   // velocidade máxima por nível
 const ACCEL = 12, COAST = 12, BRAKE = 30;   // aceleração, desaceleração ao soltar, freio
 const THROTTLE_PX = 0.12;                   // arrastar 12% da altura da tela para cima = acelerador no máximo
 // Câmbio: velocidade (m/s) em que cada marcha chega ao giro máximo
 const GEAR_TOP = [9, 15, 22, 30, 40, 50];
 const IDLE_RPM = 0.16, SHIFT_UP = 0.93, SHIFT_DOWN = 0.8, SHIFT_TIME = 0.2;
+// Ré: velocidade máxima (m/s), aceleração e quanto tempo segurar o freio parado antes de engatar
+const REVERSE_SPEED = 7, REVERSE_ACCEL = 7, REVERSE_DELAY = 0.25;
 
 const levelLen = L => 480 + 120 * (L - 1);
 function levelStartOf(L) { let s = 0; for (let i = 1; i < L; i++) s += levelLen(i); return s; }
@@ -438,6 +440,8 @@ function makeCar() {
     body.add(mesh(B(0.42, 0.15, 0.04), tailMat, sx, 0.66, -1.52));          // lanternas
     body.add(mesh(B(0.36, 0.12, 0.04), basic(0xfff3c0), sx, 0.62, 1.52));    // faróis
     glows.tail.push(glow(0xff3018, sx, 0.66, -1.6, 0.7, 0.35));
+    const rv = glow(0xffffff, sx * 0.62, 0.5, -1.62, 0.6, 0.9); rv.visible = false;          // luz de ré
+    (glows.rev = glows.rev || []).push(rv);
     glows.head.push(glow(0xfff0c0, sx, 0.62, 1.6, 0.75, 0.45));
   }
   body.add(mesh(B(1.6, 0.18, 0.1), MAT.black, 0, 0.36, -1.5));        // para-choque
@@ -897,6 +901,13 @@ function throttle() {
 function isBraking() {
   return keys.down || (!!drag && drag.y - drag.y0 > window.innerHeight * 0.05);
 }
+// Intensidade da ré (0..1): seta ↓ = máximo; arrasto para baixo = proporcional
+function brakeAmount() {
+  if (keys.down) return 1;
+  if (!drag) return 0;
+  const h = window.innerHeight;
+  return clamp((drag.y - drag.y0 - h * 0.05) / (h * THROTTLE_PX), 0.35, 1);
+}
 
 /* ---------- SOM (Web Audio: tudo sintetizado, sem arquivos) ---------- */
 const Sound = (() => {
@@ -1047,7 +1058,7 @@ let level = 1, coins = 0, stateT = 0;
 // O carro se move LIVRE no mundo (px, pz, yaw). A pista não o guia:
 // a cada quadro projetamos a posição na linha central para obter
 // s (distância ao longo da pista) e x (deslocamento lateral) e checar o chão.
-const CAR_RESET = { s: 12, x: 0, speed: 0, turnRate: 0, gear: 0, rpm: IDLE_RPM, shiftT: 0, thr: 0, braking: false, slip: 0, pitch: 0, pitchV: 0, fovKick: 0, skidAcc: 0, exhaustAcc: 0 };
+const CAR_RESET = { s: 12, x: 0, speed: 0, turnRate: 0, gear: 0, rev: false, stopT: 0, rpm: IDLE_RPM, shiftT: 0, thr: 0, braking: false, slip: 0, pitch: 0, pitchV: 0, fovKick: 0, skidAcc: 0, exhaustAcc: 0 };
 const car = Object.assign(makeCar(), { px: 0, pz: 0, yaw: 0 }, CAR_RESET);
 const fallVel = new THREE.Vector3();
 const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
@@ -1064,6 +1075,7 @@ function updateGearbox(dt, thr) {
   else if (car.gear > 0 && rpmIn(car.gear - 1) < SHIFT_DOWN) shiftGear(-1);
   // Parado com acelerador o motor "ronca" um pouco acima da marcha lenta
   let target = Math.max(IDLE_RPM + thr * 0.14, rpmIn(car.gear));
+  if (car.rev) target = IDLE_RPM + 0.08 * car.thr + Math.abs(car.speed) / REVERSE_SPEED * 0.5;   // ré: marcha curta
   // Limitador de giro na última marcha
   if (target > 0.985) target = 0.985 + Math.sin(time * 55) * 0.02 * thr;
   const k = car.shiftT > 0 ? 16 : 9;
@@ -1133,20 +1145,36 @@ function updateBody(dt, accelerating) {
   const b = car.braking;
   car.tailMat.color.setHex(b ? 0xff2a12 : 0xff7a1a);
   car.glows.tail.forEach(g => { g.material.opacity = b ? 1 : 0.35; g.scale.setScalar(b ? 1.25 : 0.7); });
+  car.glows.rev.forEach(g => g.visible = !!car.rev);
 }
 
 function updatePlaying(dt) {
   // O carro só anda com acelerador; soltando ele desacelera até parar
   const thr = throttle(), braking = isBraking();
-  car.thr = thr; car.braking = braking && car.speed > 2;      // usados pelo som
-  const target = Math.min(MAX_SPEED, BASE_SPEED + (level - 1) * SPEED_PER_LEVEL) * thr;
+  car.braking = braking && car.speed > 2;                      // lanternas e chiado
   if (thr > 0.05) hideHintSoon();
-  const accelerating = car.speed < target;
-  // Durante a troca de marcha (subida) quase não há tração
-  const accel = ACCEL * (car.shiftT > 0 && car.gear > 0 ? 0.2 : 1.12);
-  if (accelerating) car.speed = Math.min(target, car.speed + accel * dt);
-  else car.speed = Math.max(target, car.speed - (braking ? BRAKE : COAST) * dt);
-  updateGearbox(dt, thr);
+  // Ré: parado e segurando o freio por um instante, o carro anda para trás
+  car.stopT = braking && car.speed <= 0.3 ? car.stopT + dt : 0;
+  if (car.speed > 0.3) car.rev = false;
+  else if (car.stopT > REVERSE_DELAY) car.rev = true;
+  let accelerating = false;
+  if (car.rev) {
+    const amt = braking ? brakeAmount() : 0;
+    car.thr = amt;
+    if (thr > 0.05) car.speed = Math.min(0, car.speed + BRAKE * dt);                 // acelerar freia a ré
+    else if (braking) { car.speed = Math.max(-REVERSE_SPEED * amt, car.speed - REVERSE_ACCEL * dt); accelerating = true; }
+    else car.speed = Math.min(0, car.speed + COAST * dt);
+    if (car.speed >= 0 && thr > 0.05) car.rev = false;
+  } else {
+    car.thr = thr;
+    const target = Math.min(MAX_SPEED, BASE_SPEED + (level - 1) * SPEED_PER_LEVEL) * thr;
+    accelerating = car.speed < target;
+    // Durante a troca de marcha (subida) quase não há tração
+    const accel = ACCEL * (car.shiftT > 0 && car.gear > 0 ? 0.2 : 1.12);
+    if (accelerating) car.speed = Math.min(target, car.speed + accel * dt);
+    else car.speed = Math.max(target, car.speed - (braking ? BRAKE : COAST) * dt);
+  }
+  updateGearbox(dt, car.rev ? 0 : thr);
 
   // Direção: só muda pelo jogador (arrasto ou ← →). Nada de seguir a curva sozinho.
   const yawPrev = car.yaw;
@@ -1369,8 +1397,8 @@ function updateHUD() {
   const prog = clamp((car.s - levelStartOf(level)) / levelLen(level), 0, 1);
   const pct = Math.floor(prog * 100) + '%';
   if (hudCache.p !== pct) { hudCache.p = pct; ui.barFill.style.width = pct; ui.barText.textContent = pct; }
-  setText(ui.speedVal, 's', String(Math.round(car.speed * 3.6)));
-  setText(ui.gear, 'g', String(car.gear + 1));
+  setText(ui.speedVal, 's', String(Math.round(Math.abs(car.speed) * 3.6)));
+  setText(ui.gear, 'g', car.rev ? 'R' : String(car.gear + 1));
   const rpm = Math.round(clamp(car.rpm, 0, 1) * 50) * 2;
   if (hudCache.r !== rpm) {
     hudCache.r = rpm; ui.rpmFill.style.width = rpm + '%';
