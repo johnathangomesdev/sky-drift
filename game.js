@@ -19,6 +19,8 @@
    ===================================================================== */
 
 /* ---------- 1. CONFIGURAÇÃO ---------- */
+// Versão do jogo: mostrada no canto da tela. Ao publicar, suba aqui e no ?v= do index.html.
+const VERSION = '1.3.0';
 const HW = 4;              // meia largura da pista (largura total = 8)
 const T = 1.3;             // espessura da pista
 const DS = 1.5;            // passo da malha ao longo da pista
@@ -1222,6 +1224,7 @@ function updatePlaying(dt) {
   // Fim do nível
   if (car.s >= levelStartOf(level) + levelLen(level)) {
     level++;
+    saveLastLevel(level);
     showBanner(`NÍVEL ${String(level - 1).padStart(2, '0')} COMPLETO!`);
     Sound.level();
     burst(car.root.position.clone().add(new THREE.Vector3(0, 2, 0)), [0xff3b3b, 0xffc61a, 0x3fd629, 0x1e88e5, 0xffffff], 60, 7, 12, 1.2);
@@ -1323,6 +1326,13 @@ function updateCamera(dt, snap) {
     const p = car.root.position, a = time * 0.45;
     camPos.set(p.x + Math.sin(a) * 6.5, p.y + 2.8, p.z + Math.cos(a) * 6.5);
     camLook.set(p.x, p.y - 0.6, p.z);
+  } else if (state === 'menu' && !snap) {
+    // Tela inicial: vista alta atrás do carro, balançando devagar, mostrando o começo da fase
+    const c = sample(car.s), a = sample(car.s + 16), sw = Math.sin(time * 0.25) * 3.5;
+    tmpA.set(c.x - c.fx * 10 + c.rx * sw, c.y + 5.5 + Math.sin(time * 0.31) * 0.6, c.z - c.fz * 10 + c.rz * sw);
+    tmpB.set(a.x, a.y - 4.5, a.z);
+    const k = 1 - Math.exp(-dt * 2);
+    camPos.lerp(tmpA, k); camLook.lerp(tmpB, k);
   } else if (state === 'falling' || state === 'over') {
     camLook.lerp(car.root.position, 1 - Math.exp(-dt * 6));
   } else {
@@ -1434,7 +1444,8 @@ function gameOver(reason) {
   ui.over.classList.add('show');
 }
 
-function resetWorld() {
+// startLevel: nível usado para gerar a pista; home: cenário da tela inicial (com pórtico de largada)
+function resetWorld(startLevel = 1, home = false) {
   state = 'menu';                               // garante que a câmera volte para trás do carro
   segments.forEach(removeSeg); segments = [];
   flying.forEach(f => scene.remove(f.mesh)); flying = [];
@@ -1443,12 +1454,13 @@ function resetWorld() {
   puffs.forEach(p => { scene.remove(p.sp); (p.add ? puffPoolAdd : puffPool).push(p.sp); }); puffs.length = 0;
   clearSkids();
   resetPath();
-  genEnd = 0; genLevel = 1; genLevelEnd = levelLen(1);
-  level = 1; coins = 0; shake = 0;
+  genEnd = 0; genLevel = startLevel; genLevelEnd = levelLen(startLevel);
+  level = startLevel; coins = 0; shake = 0;
   Object.assign(car, CAR_RESET);
   updateBody(0, false);
   car.body.rotation.set(0, 0, 0); car.body.position.set(0, 0, 0);
   ensureTrack();
+  if (home) makeFinish(segments[0], car.s + 4);  // pórtico quadriculado: "largada" da fase
   const c0 = sample(car.s);                     // começa no centro, apontando ao longo da pista
   car.px = c0.x; car.pz = c0.z; car.yaw = c0.h;
   placeCar(0);
@@ -1457,11 +1469,26 @@ function resetWorld() {
   updateHUD();
 }
 
+// Última fase jogada (fundo da tela inicial)
+function loadLastLevel() { try { return Math.max(1, parseInt(localStorage.getItem('skydrift_last_level'), 10) || 1); } catch (_) { return 1; } }
+function saveLastLevel(L) { try { localStorage.setItem('skydrift_last_level', String(L)); } catch (_) { } }
+
+// Tela inicial: monta a pista no começo da última fase jogada
+function showHome() {
+  [ui.pause, ui.over, garage].forEach(s => s.classList.remove('show'));
+  const L = loadLastLevel();
+  $('lastLevel').textContent = `FASE ${String(L).padStart(2, '0')}`;
+  $('bestStart').textContent = bestText(loadBest());
+  resetWorld(L, true);
+  ui.start.classList.add('show');
+}
+
 function startGame() {
   Sound.init();                                 // áudio só pode começar após um toque/clique
   resetWorld();
   [ui.start, ui.pause, ui.over].forEach(s => s.classList.remove('show'));
   state = 'playing';
+  saveLastLevel(1);
   showHint();
 }
 function togglePause() {
@@ -1500,15 +1527,11 @@ function openGarage() {
   garage.classList.add('show');
   state = 'garage';
 }
-function backToMenu() {
-  garage.classList.remove('show');
-  ui.start.classList.add('show');
-  $('bestStart').textContent = bestText(loadBest());
-  resetWorld();                                 // volta a câmera para trás do carro
-}
 $('startBtn').addEventListener('click', openGarage);
+$('homeBtn').addEventListener('click', showHome);
+$('homeBtn2').addEventListener('click', showHome);
 $('raceBtn').addEventListener('click', () => { garage.classList.remove('show'); startGame(); });
-$('backBtn').addEventListener('click', backToMenu);
+$('backBtn').addEventListener('click', showHome);
 $('garageBtn').addEventListener('click', openGarage);
 $('restartBtn').addEventListener('click', startGame);
 $('restartBtn2').addEventListener('click', startGame);
@@ -1541,13 +1564,20 @@ function loop() {
     updateSpeedFx();
     updateHUD();
   }
+  // HUD some na tela inicial e na garagem
+  const inMenu = state === 'menu' || state === 'garage';
+  if (inMenu !== lastInMenu) { lastInMenu = inMenu; document.body.classList.toggle('in-menu', inMenu); }
   // Motor e pneus: só soam durante a corrida (silenciam na pausa, queda e fim)
   const active = state === 'playing';
   Sound.update(car.rpm, active ? car.thr || 0 : 0, active ? car.slip : 0, active);
   renderer.render(scene, camera);
 }
 function nearbyVisible(fn) { for (const seg of segments) { if (seg.start > car.s + 150) break; fn(seg); } }
+let lastInMenu = null;
 
-// Inicia com a pista já montada atrás da tela inicial
-resetWorld();
+// Versão carregada (canto superior direito)
+$('version').textContent = 'v' + VERSION;
+
+// Inicia na tela inicial, com a pista no começo da última fase jogada
+showHome();
 loop();

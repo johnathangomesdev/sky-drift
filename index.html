@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#1e88e5">
   <title>Sky Drift</title>
-  <link rel="stylesheet" href="style.css">
+  <meta http-equiv="Cache-Control" content="no-cache">
+  <link rel="stylesheet" href="style.css?v=1.3.0">
 </head>
 <body>
   <!-- Canvas do jogo (também é a área de arrasto) -->
@@ -56,11 +57,14 @@
   <div id="flash"></div>
 
   <!-- ================= TELAS ================= -->
-  <!-- Menu inicial -->
-  <div class="screen show" id="startScreen">
-    <div class="card">
+  <!-- Tela inicial: fundo = pista 3D no começo da última fase jogada -->
+  <div class="screen home show" id="startScreen">
+    <div class="home-top">
       <div class="logo">SKY<span>DRIFT</span></div>
       <p class="sub">Corra pela pista suspensa sobre as nuvens!</p>
+    </div>
+    <div class="home-panel">
+      <div class="last-level"><small>ÚLTIMA FASE</small><b id="lastLevel">FASE 01</b></div>
       <button class="btn big" id="startBtn">JOGAR</button>
       <p class="best" id="bestStart"></p>
       <details class="howto">
@@ -96,6 +100,7 @@
       <button class="btn" id="resumeBtn">CONTINUAR</button>
       <button class="btn ghost" id="restartBtn2">REINICIAR</button>
       <button class="btn ghost" id="soundBtn">🔊 SOM: LIGADO</button>
+      <button class="btn ghost" id="homeBtn2">TELA INICIAL</button>
     </div>
   </div>
 
@@ -110,11 +115,16 @@
       <p class="best" id="bestOver"></p>
       <button class="btn" id="restartBtn">REINICIAR</button>
       <button class="btn ghost" id="garageBtn">TROCAR CARRO</button>
+      <button class="btn ghost" id="homeBtn">TELA INICIAL</button>
     </div>
   </div>
 
   <!-- Three.js via CDN (build clássico: funciona abrindo o arquivo direto) -->
+  <!-- Versão carregada (preenchida pelo game.js) -->
+  <div id="version"></div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="game.js"></script>
+  <!-- ?v= força o navegador/app a baixar a versão nova (mantenha igual ao VERSION do game.js) -->
+  <script src="game.js?v=1.3.0"></script>
 </body>
 </html>

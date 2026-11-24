@@ -159,6 +159,45 @@ h2 { margin: 4px 0 16px; font-size: 28px; }
 .howto summary { cursor: pointer; font-weight: 800; text-align: center; opacity: .75; }
 .howto .rules { margin: 10px 0 0; }
 
+/* ===== Tela inicial (o cenário 3D aparece por trás) ===== */
+.screen.home {
+  background: linear-gradient(rgba(10,30,70,.30), transparent 28%, transparent 50%, rgba(10,30,70,.40));
+  flex-direction: column; justify-content: space-between; align-items: center;
+  padding: calc(env(safe-area-inset-top) + 34px) 16px calc(env(safe-area-inset-bottom) + 18px);
+}
+.screen.home.show { display: flex; }
+.home-top { text-align: center; animation: pop .4s ease-out; }
+.home .logo {
+  font-size: clamp(52px, 16vw, 76px); color: #fff;
+  text-shadow: 0 5px 0 #c41d22, 0 9px 0 rgba(0,0,0,.18), 0 14px 26px rgba(0,0,0,.3);
+}
+.home .logo span { color: var(--gold); text-shadow: 0 5px 0 var(--orange-dark), 0 9px 0 rgba(0,0,0,.18), 0 14px 26px rgba(0,0,0,.3); }
+.home .sub { color: #fff; opacity: 1; text-shadow: 0 2px 4px rgba(0,0,0,.45); }
+.home-panel {
+  width: min(94vw, 400px); background: rgba(255,255,255,.94); border: 4px solid #ffd45a; border-radius: 26px;
+  padding: 16px 18px; text-align: center; color: var(--ink);
+  box-shadow: 0 10px 0 rgba(0,0,0,.12), 0 20px 40px rgba(0,0,0,.25); animation: pop .3s ease-out;
+}
+.home-panel .howto .rules { max-height: 32vh; overflow: auto; }
+.last-level { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.last-level small { font-size: 12px; font-weight: 800; letter-spacing: 1px; opacity: .6; }
+.last-level b {
+  margin-top: 4px; color: #fff; font-size: 22px; letter-spacing: 1px; padding: 4px 18px; border-radius: 999px;
+  background: linear-gradient(var(--navy-2), var(--navy)); box-shadow: 0 3px 0 rgba(0,0,0,.25);
+}
+
+/* HUD escondido na tela inicial e na garagem */
+#hud { transition: opacity .3s; }
+.in-menu #hud, .in-menu #speedfx { opacity: 0 !important; }
+
+/* Versão carregada: canto superior direito, abaixo do botão de pausa */
+#version {
+  position: fixed; right: 10px; top: calc(env(safe-area-inset-top) + 70px); z-index: 30; pointer-events: none;
+  font: 700 11px/1 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #fff;
+  background: rgba(16,48,94,.55); padding: 3px 7px; border-radius: 999px; letter-spacing: .5px;
+}
+.in-menu #version { top: calc(env(safe-area-inset-top) + 10px); }
+
 /* ===== Garagem ===== */
 .screen.garage {
   background: linear-gradient(rgba(10,30,70,.35), transparent 30%, transparent 55%, rgba(10,30,70,.45));
