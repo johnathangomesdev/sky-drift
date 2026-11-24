@@ -20,6 +20,11 @@ O desafio é se manter na pista: ela não tem proteção nas bordas, tem trechos
 
 O carro só muda de direção quando você vira: nas curvas, quem esterça é você.
 
+- **Tela inicial:** mostra a pista no começo da última fase jogada; não há botão "jogar", arrastar para cima já larga a fase. Botões: carro (garagem), ranking e configurações (engrenagem).
+- **Vidas:** 3 galões de gasolina. Caiu ou bateu, perde um galão e volta para o ponto de retorno (arco verde no meio da fase) ou para a largada da fase. Sem galões, fim de jogo.
+- **Ranking e configurações** ficam salvos no aparelho (localStorage).
+- A versão carregada aparece no canto superior direito (`VERSION` no `game.js` + `?v=` no `index.html`).
+
 ## Arquivos
 
 - `index.html` — estrutura, HUD e telas

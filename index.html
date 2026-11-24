@@ -6,18 +6,22 @@
   <meta name="theme-color" content="#1e88e5">
   <title>Sky Drift</title>
   <meta http-equiv="Cache-Control" content="no-cache">
-  <link rel="stylesheet" href="style.css?v=1.3.0">
+  <link rel="stylesheet" href="style.css?v=1.4.0">
 </head>
-<body>
+<body class="in-menu">
   <!-- Canvas do jogo (também é a área de arrasto) -->
   <canvas id="game"></canvas>
 
   <!-- ================= HUD ================= -->
   <div id="hud">
     <div class="top">
-      <!-- Moedas -->
-      <div class="coins" id="coinPill">
-        <span class="coin-ico">★</span><span id="coinCount">0</span>
+      <div class="left-col">
+        <!-- Moedas -->
+        <div class="coins" id="coinPill">
+          <span class="coin-ico">★</span><span id="coinCount">0</span>
+        </div>
+        <!-- Vidas: galões de gasolina -->
+        <div class="lives" id="lives"></div>
       </div>
       <!-- Nível + barra de progresso -->
       <div class="level-box">
@@ -40,16 +44,16 @@
     </div>
   </div>
 
-  <!-- Dica de controle (gesto de arrasto) -->
+  <!-- Dica de controle: dedo arrastando para cima -->
   <div id="hint">
     <div class="swipe">
-      <svg viewBox="0 0 220 110" width="200" height="100" aria-hidden="true">
-        <path d="M190 100 Q130 22 52 34" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="16" stroke-linecap="round"/>
-        <polygon points="20,36 62,12 60,58" fill="#fff" fill-opacity=".75"/>
+      <svg viewBox="0 0 60 120" width="60" height="120" aria-hidden="true">
+        <path d="M30 112 V30" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="12" stroke-linecap="round"/>
+        <polygon points="30,4 52,34 8,34" fill="#fff" fill-opacity=".85"/>
       </svg>
       <span class="finger">👆</span>
     </div>
-    <div class="hint-pill">ARRASTE ↑ PARA ANDAR</div>
+    <div class="hint-pill" id="hintText">ARRASTE ↑ PARA ANDAR</div>
   </div>
 
   <div id="speedfx"></div>
@@ -57,29 +61,20 @@
   <div id="flash"></div>
 
   <!-- ================= TELAS ================= -->
-  <!-- Tela inicial: fundo = pista 3D no começo da última fase jogada -->
+  <!-- Tela inicial: fundo = pista 3D no começo da última fase jogada.
+       Sem botão "jogar": arrastar para cima já larga a fase. -->
   <div class="screen home show" id="startScreen">
+    <button class="icon-btn settings" id="settingsBtn" aria-label="Configurações">⚙️</button>
     <div class="home-top">
       <div class="logo">SKY<span>DRIFT</span></div>
-      <p class="sub">Corra pela pista suspensa sobre as nuvens!</p>
+      <div class="last-level"><b id="lastLevel">FASE 01</b></div>
     </div>
-    <div class="home-panel">
-      <div class="last-level"><small>ÚLTIMA FASE</small><b id="lastLevel">FASE 01</b></div>
-      <button class="btn big" id="startBtn">JOGAR</button>
+    <div class="home-bottom">
       <p class="best" id="bestStart"></p>
-      <details class="howto">
-        <summary>Como jogar</summary>
-      <ul class="rules">
-        <li>👆 Arraste para cima para acelerar, para baixo para frear</li>
-        <li>↩️ Parado, segure o dedo para baixo para dar ré</li>
-        <li>↔️ Arraste para os lados para virar o volante: nas curvas é você quem vira!</li>
-        <li>⌨️ No PC: segure ↑ para andar, ↓ freia (parado = ré), ← → vira</li>
-        <li>🌉 A pista não tem proteção: saiu da borda, caiu!</li>
-        <li>〰️ Passe pelos trechos estreitos e em zigue-zague</li>
-        <li>🕳️ Cuidado com buracos e bifurcações</li>
-        <li>⭐ Siga as moedas: elas mostram o caminho seguro</li>
-      </ul>
-      </details>
+      <div class="home-btns">
+        <button class="btn" id="garageHomeBtn">🚗 CARRO</button>
+        <button class="btn" id="rankBtn">🏆 RANKING</button>
+      </div>
     </div>
   </div>
 
@@ -89,8 +84,46 @@
     <div class="garage-panel">
       <div class="skin-name" id="skinName">Vermelho Clássico</div>
       <div class="swatches" id="swatches"></div>
-      <button class="btn" id="raceBtn">CORRER!</button>
-      <button class="btn ghost" id="backBtn">VOLTAR</button>
+      <button class="btn" id="raceBtn">PRONTO</button>
+    </div>
+  </div>
+
+  <!-- Ranking (salvo neste aparelho) -->
+  <div class="screen modal" id="rankScreen">
+    <div class="card">
+      <h2>🏆 Ranking</h2>
+      <table class="rank">
+        <thead><tr><th>#</th><th>Fase</th><th>Distância</th><th>Moedas</th><th>Data</th></tr></thead>
+        <tbody id="rankBody"></tbody>
+      </table>
+      <button class="btn" data-close="rankScreen">FECHAR</button>
+    </div>
+  </div>
+
+  <!-- Configurações -->
+  <div class="screen modal" id="setScreen">
+    <div class="card">
+      <h2>⚙️ Configurações</h2>
+      <div class="set-row"><span>Som</span><button class="toggle" id="setSound">🔊 LIGADO</button></div>
+      <div class="set-row"><span>Vibração</span><button class="toggle" id="setVib">📳 LIGADA</button></div>
+      <div class="set-row col">
+        <span>Sensibilidade do volante <b id="setSensVal">100%</b></span>
+        <input type="range" id="setSens" min="0.5" max="1.6" step="0.1" value="1">
+      </div>
+      <details class="howto">
+        <summary>Como jogar</summary>
+        <ul class="rules">
+          <li>👆 Arraste para cima para acelerar, para baixo para frear</li>
+          <li>↩️ Parado, segure o dedo para baixo para dar ré</li>
+          <li>↔️ Arraste para os lados para virar o volante</li>
+          <li>⌨️ No PC: ↑ anda, ↓ freia (parado = ré), ← → vira</li>
+          <li>⛽ Cada galão é uma vida: caiu ou bateu, volta ao ponto de retorno</li>
+          <li>🟩 Passe pelo arco verde RETORNO no meio da fase</li>
+          <li>⭐ Siga as moedas: elas mostram o caminho seguro</li>
+        </ul>
+      </details>
+      <button class="btn ghost danger" id="setReset">APAGAR PROGRESSO</button>
+      <button class="btn" data-close="setScreen">FECHAR</button>
     </div>
   </div>
 
@@ -98,33 +131,32 @@
     <div class="card">
       <h2>Pausado</h2>
       <button class="btn" id="resumeBtn">CONTINUAR</button>
-      <button class="btn ghost" id="restartBtn2">REINICIAR</button>
       <button class="btn ghost" id="soundBtn">🔊 SOM: LIGADO</button>
-      <button class="btn ghost" id="homeBtn2">TELA INICIAL</button>
+      <button class="btn ghost" id="restartBtn2">SAIR PARA O INÍCIO</button>
     </div>
   </div>
 
   <div class="screen" id="overScreen">
     <div class="card">
       <h2 id="overReason">Fim de jogo</h2>
+      <p class="sub">Acabaram os galões!</p>
       <div class="stats">
         <div><b id="stCoins">0</b><span>moedas</span></div>
         <div><b id="stDist">0</b><span>metros</span></div>
-        <div><b id="stLevel">1</b><span>nível</span></div>
+        <div><b id="stLevel">1</b><span>fase</span></div>
       </div>
       <p class="best" id="bestOver"></p>
-      <button class="btn" id="restartBtn">REINICIAR</button>
+      <button class="btn" id="restartBtn">JOGAR DE NOVO</button>
       <button class="btn ghost" id="garageBtn">TROCAR CARRO</button>
-      <button class="btn ghost" id="homeBtn">TELA INICIAL</button>
     </div>
   </div>
 
-  <!-- Three.js via CDN (build clássico: funciona abrindo o arquivo direto) -->
   <!-- Versão carregada (preenchida pelo game.js) -->
   <div id="version"></div>
 
+  <!-- Three.js via CDN (build clássico: funciona abrindo o arquivo direto) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- ?v= força o navegador/app a baixar a versão nova (mantenha igual ao VERSION do game.js) -->
-  <script src="game.js?v=1.3.0"></script>
+  <script src="game.js?v=1.4.0"></script>
 </body>
 </html>

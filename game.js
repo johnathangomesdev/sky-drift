@@ -20,7 +20,7 @@
 
 /* ---------- 1. CONFIGURAÇÃO ---------- */
 // Versão do jogo: mostrada no canto da tela. Ao publicar, suba aqui e no ?v= do index.html.
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const HW = 4;              // meia largura da pista (largura total = 8)
 const T = 1.3;             // espessura da pista
 const DS = 1.5;            // passo da malha ao longo da pista
@@ -41,7 +41,7 @@ const IDLE_RPM = 0.16, SHIFT_UP = 0.93, SHIFT_DOWN = 0.8, SHIFT_TIME = 0.2;
 const REVERSE_SPEED = 7, REVERSE_ACCEL = 7, REVERSE_DELAY = 0.25;
 
 const levelLen = L => 480 + 120 * (L - 1);
-function levelStartOf(L) { let s = 0; for (let i = 1; i < L; i++) s += levelLen(i); return s; }
+const MAX_LIVES = 3;       // galões de gasolina
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
@@ -582,9 +582,26 @@ function makeFinish(seg, s) {
   g.add(mesh(new THREE.BoxGeometry(2 * HW + 0.9, 1.0, 0.3), MAT.checker, 0, 5.2, 0));
   seg.objects.push(placeAt(shadowAll(g), s, 0, 0));
 }
+// Ponto de retorno: arco verde com faixa "RETORNO" (quem cai volta para cá)
+const texCheckpoint = canvasTex(512, 64, (g, w, h) => {
+  g.fillStyle = '#23a514'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#fff'; g.font = '900 42px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('⛽ RETORNO ⛽', w / 2, h / 2 + 2);
+});
+MAT.checkpoint = lam(0xffffff, { map: texCheckpoint });
+MAT.green = lam(0x3fd629);
+function makeCheckpoint(seg, s) {
+  const g = new THREE.Group();
+  for (const x of [-HW - 0.2, HW + 0.2]) g.add(mesh(new THREE.BoxGeometry(0.4, 4.6, 0.4), MAT.green, x, 2.3, 0));
+  const b = mesh(new THREE.BoxGeometry(2 * HW + 0.8, 0.9, 0.25), MAT.checkpoint, 0, 4.5, 0);
+  b.rotation.y = Math.PI;                       // texto de frente para quem chega
+  g.add(b);
+  seg.objects.push(placeAt(shadowAll(g), s, 0, 0));
+  seg.checkpoint = s;
+}
 
 /* ---------- 7. GERAÇÃO PROCEDURAL ---------- */
-let genEnd = 0, genLevel = 1, genLevelEnd = levelLen(1);
+let genEnd = 0, genLevel = 1, genLevelEnd = levelLen(1), genCpLevel = 0;
 
 function curveSign() {               // evita que a pista dê voltas sobre si mesma
   const h = path.h[path.h.length - 1];
@@ -618,6 +635,10 @@ function generateNext() {
     len = genLevelEnd + 30 - genEnd;
     opts = { finish: genLevelEnd, curv: 0 };
     genLevel++; genLevelEnd += levelLen(genLevel);
+  } else if (genEnd > 0 && genCpLevel !== L && genEnd + len > genLevelEnd - levelLen(L) / 2) {
+    // Meio da fase: reta segura com o ponto de retorno
+    len = 36; opts = { checkpoint: genEnd + 12, curv: 0, safe: true };
+    genCpLevel = L;
   }
 
   const seg = {
@@ -636,6 +657,7 @@ function generateNext() {
   else if (Math.abs(seg.curv) > 0.011) seg.objects.push(placeAt(makeSign(seg.curv > 0 ? MAT.signL : MAT.signR), seg.start + 2, seg.curv > 0 ? HW - 0.25 : -(HW - 0.25)));
 
   if (opts.finish) makeFinish(seg, opts.finish);
+  else if (opts.checkpoint) makeCheckpoint(seg, opts.checkpoint);
   else if (!opts.safe) placeObstacles(seg);
   placeCoins(seg);
   genEnd = seg.end;
@@ -727,7 +749,8 @@ function removeSeg(seg) {
   seg.coins.forEach(c => scene.remove(c.mesh));
 }
 function ensureTrack() { while (genEnd < car.s + AHEAD) generateNext(); }
-function cleanupTrack() { while (segments.length && segments[0].end < car.s - BEHIND) removeSeg(segments.shift()); }
+// Mantém atrás o trecho até o ponto de retorno (para onde o carro volta se cair)
+function cleanupTrack() { while (segments.length && segments[0].end < Math.min(car.s - BEHIND, respawnS - 20)) removeSeg(segments.shift()); }
 
 /* ---------- 8. EFEITOS ---------- */
 const parts = [], partPool = [], pMats = {}, rings = [];
@@ -868,7 +891,7 @@ canvas.addEventListener('pointermove', e => {
   drag.y = e.clientY;
   const dx = e.clientX - drag.x; drag.x = e.clientX;
   // Arrasto horizontal gira o volante: direita vira para a direita (yaw diminui)
-  if (state === 'playing') car.yaw -= dx / Math.min(window.innerWidth, 700) * TURN_SENS;
+  if (state === 'playing') car.yaw -= dx / Math.min(window.innerWidth, 700) * TURN_SENS * settings.sens;
 });
 const endDrag = e => { if (drag && e.pointerId === drag.id) drag = null; };
 canvas.addEventListener('pointerup', endDrag);
@@ -1050,7 +1073,8 @@ const Sound = (() => {
     coin()  { tone(988, 0.08, 'square', 0.1); tone(1319, 0.2, 'square', 0.1, null, 0.07); },
     fall()  { tone(650, 1.5, 'sine', 0.25, 110); },
     level() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.2, 'triangle', 0.22, null, i * 0.1)); },
-    toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : VOL; return muted; },
+    checkpoint() { [659, 880, 1175].forEach((f, i) => tone(f, 0.16, 'triangle', 0.2, null, i * 0.08)); },
+    setMuted(v) { muted = !!v; if (master) master.gain.value = muted ? 0 : VOL; },
   };
 })();
 
@@ -1086,13 +1110,7 @@ function updateGearbox(dt, thr) {
 function shiftGear(dir) {
   car.gear += dir;
   car.shiftT = dir > 0 ? SHIFT_TIME : 0.1;
-  Sound.shift(dir > 0);
-  restartAnim(ui.gear, 'bump');
-  if (dir > 0) {
-    car.pitchV += 0.9;                         // carroceria "mergulha" no corte de giro
-    car.fovKick = 3.5;
-    exhaustFx(true);
-  }
+  Sound.shift(dir > 0);                        // troca de marcha: só som (sem animação)
 }
 function exhaustFx(pop) {
   car.body.updateMatrixWorld(true);
@@ -1221,9 +1239,20 @@ function updatePlaying(dt) {
   if (state !== 'playing') return;
   checkCoins();
 
+  // Passou por um ponto de retorno
+  nearbySegments(seg => {
+    if (seg.checkpoint && car.s >= seg.checkpoint && respawnS < seg.checkpoint) {
+      respawnS = seg.checkpoint;
+      showBanner('PONTO DE RETORNO!');
+      Sound.checkpoint();
+    }
+  });
+
   // Fim do nível
-  if (car.s >= levelStartOf(level) + levelLen(level)) {
+  if (car.s >= levelBase + levelLen(level)) {
+    levelBase += levelLen(level);
     level++;
+    respawnS = levelBase + 4;                     // nova fase: volta para a largada dela
     saveLastLevel(level);
     showBanner(`NÍVEL ${String(level - 1).padStart(2, '0')} COMPLETO!`);
     Sound.level();
@@ -1276,7 +1305,7 @@ function hitObstacle(o) {
     for (let i = 0; i < 5; i++) puff(p, { color: 0xe8dccb, size: 0.7, grow: 2, life: 0.7, opacity: 0.45, v: new THREE.Vector3(rand(-3, 3), rand(0.5, 2.5), rand(-3, 3)), rise: 0.5 });
     flash('rgba(255,90,40,.55)'); shake = 0.35;
     Sound.bump();
-    if (navigator.vibrate) navigator.vibrate(40);
+    vibrate(40);
   }
 }
 
@@ -1307,13 +1336,48 @@ function updateFalling(dt) {
   fallVel.y -= 32 * dt;
   car.root.position.addScaledVector(fallVel, dt);
   car.body.rotation.x += dt * 1.6; car.body.rotation.z += dt * 1.1;
-  if (stateT > 1.7) gameOver('Você caiu da pista!');
+  if (stateT > 1.5) loseLife('Você caiu da pista!');
 }
 function updateCrashed(dt) {
   stateT += dt;
   car.body.rotation.y += dt * 9 * Math.max(0, 1 - stateT);
   car.body.position.y = Math.max(0, Math.sin(stateT * 6) * 0.6 * (1 - stateT));
-  if (stateT > 1.2) gameOver('Você bateu!');
+  if (stateT > 1.2) loseLife('Você bateu!');
+}
+
+/* ---------- Vidas (galões de gasolina) e ponto de retorno ---------- */
+let lives = MAX_LIVES, levelBase = 0, respawnS = 12, blinkT = 0;
+function loseLife(reason) {
+  lives--;
+  renderLives(true);
+  if (lives <= 0) { gameOver(reason); return; }
+  respawn();
+}
+// Volta o carro, parado, para o último ponto de retorno (ou largada da fase)
+function respawn() {
+  const s = respawnS, c = sample(s);
+  Object.assign(car, CAR_RESET, { s });
+  car.px = c.x; car.pz = c.z; car.yaw = c.h;
+  car.body.rotation.set(0, 0, 0); car.body.position.set(0, 0, 0);
+  skidPrev.length = 0;
+  updateBody(0, false);
+  placeCar(0);
+  state = 'playing'; stateT = 0; shake = 0; blinkT = 1.2;
+  updateCamera(0, true);
+  flash('rgba(255,255,255,.7)');
+  showBanner(lives === 1 ? 'ÚLTIMO GALÃO!' : `RESTAM ${lives} GALÕES`);
+  showHint();
+}
+// Desenha os galões no HUD (cheios = vidas restantes)
+const GAS_SVG = '<svg viewBox="0 0 24 28" aria-hidden="true"><path d="M6 4h7l2 3h3a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" fill="#e5262b" stroke="#6e0d10" stroke-width="1.6"/><rect x="15" y="1" width="5" height="4.5" rx="1" fill="#ffc21a" stroke="#6e0d10" stroke-width="1.3"/><rect x="7" y="6" width="5.5" height="2.6" rx="1.2" fill="#6e0d10"/><path d="M8.5 13l7 8M15.5 13l-7 8" stroke="#ffd7c8" stroke-width="2.2" stroke-linecap="round"/></svg>';
+function renderLives(lost) {
+  ui.lives.innerHTML = '';
+  for (let i = 0; i < MAX_LIVES; i++) {
+    const d = document.createElement('span');
+    d.className = 'gas' + (i < lives ? '' : ' empty') + (lost && i === lives ? ' lost' : '');
+    d.innerHTML = GAS_SVG;
+    ui.lives.appendChild(d);
+  }
 }
 
 /* ---------- Câmera ---------- */
@@ -1397,14 +1461,14 @@ const $ = id => document.getElementById(id);
 const ui = {
   coinPill: $('coinPill'), coinCount: $('coinCount'), levelText: $('levelText'), barFill: $('barFill'), barText: $('barText'),
   speedVal: $('speedVal'), gear: $('gearVal'), rpmFill: $('rpmFill'), hint: $('hint'), banner: $('banner'),
-  start: $('startScreen'), pause: $('pauseScreen'), over: $('overScreen'),
+  start: $('startScreen'), pause: $('pauseScreen'), over: $('overScreen'), lives: $('lives'), hintText: $('hintText'),
 };
 const hudCache = {};
 function setText(el, key, v) { if (hudCache[key] !== v) { hudCache[key] = v; el.textContent = v; } }
 function updateHUD() {
   setText(ui.coinCount, 'c', coins.toLocaleString('pt-BR'));
   setText(ui.levelText, 'l', `NÍVEL ${String(level).padStart(2, '0')}`);
-  const prog = clamp((car.s - levelStartOf(level)) / levelLen(level), 0, 1);
+  const prog = clamp((car.s - levelBase) / levelLen(level), 0, 1);
   const pct = Math.floor(prog * 100) + '%';
   if (hudCache.p !== pct) { hudCache.p = pct; ui.barFill.style.width = pct; ui.barText.textContent = pct; }
   setText(ui.speedVal, 's', String(Math.round(Math.abs(car.speed) * 3.6)));
@@ -1416,7 +1480,10 @@ function updateHUD() {
   }
 }
 function showBanner(text) { ui.banner.textContent = text; restartAnim(ui.banner, 'show'); }
-function showHint() { clearTimeout(hintTimer); hintTimer = 0; ui.hint.classList.add('show'); }   // some quando o jogador acelerar
+function showHint(text) {                       // some quando o jogador acelerar
+  ui.hintText.textContent = text || 'ARRASTE ↑ PARA ANDAR';
+  clearTimeout(hintTimer); hintTimer = 0; ui.hint.classList.add('show');
+}
 function hideHintSoon() {
   if (!ui.hint.classList.contains('show') || hintTimer === 'hiding') return;
   clearTimeout(hintTimer); hintTimer = 'hiding';
@@ -1440,9 +1507,56 @@ function gameOver(reason) {
   $('stDist').textContent = dist;
   $('stLevel').textContent = level;
   $('bestOver').textContent = bestText(best);
+  addRanking({ level, dist, coins, date: Date.now() });
   ui.hint.classList.remove('show');
   ui.over.classList.add('show');
 }
+
+/* ---------- Ranking (salvo no aparelho) ---------- */
+function loadRanking() { try { return JSON.parse(localStorage.getItem('skydrift_ranking')) || []; } catch (_) { return []; } }
+let lastRankDate = 0;
+function addRanking(e) {
+  const r = loadRanking(); r.push(e); lastRankDate = e.date;
+  r.sort((a, b) => b.level - a.level || b.dist - a.dist || b.coins - a.coins);
+  try { localStorage.setItem('skydrift_ranking', JSON.stringify(r.slice(0, 10))); } catch (_) { }
+}
+function openRanking() {
+  const r = loadRanking(), body = $('rankBody');
+  body.innerHTML = r.length ? '' : '<tr><td colspan="5" class="empty">Nenhuma corrida ainda. Bora!</td></tr>';
+  r.forEach((e, i) => {
+    const tr = document.createElement('tr');
+    if (e.date === lastRankDate) tr.className = 'me';
+    const d = new Date(e.date);
+    tr.innerHTML = `<td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${String(e.level).padStart(2, '0')}</td><td>${e.dist} m</td><td>★ ${e.coins}</td><td>${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</td>`;
+    body.appendChild(tr);
+  });
+  $('rankScreen').classList.add('show');
+}
+
+/* ---------- Configurações ---------- */
+const settings = Object.assign({ sound: true, vibrate: true, sens: 1 }, (() => { try { return JSON.parse(localStorage.getItem('skydrift_settings')) || {}; } catch (_) { return {}; } })());
+function saveSettings() { try { localStorage.setItem('skydrift_settings', JSON.stringify(settings)); } catch (_) { } }
+function applySettings() {
+  Sound.setMuted(!settings.sound);
+  $('setSound').textContent = settings.sound ? '🔊 LIGADO' : '🔇 DESLIGADO';
+  $('setSound').classList.toggle('off', !settings.sound);
+  $('soundBtn').textContent = settings.sound ? '🔊 SOM: LIGADO' : '🔇 SOM: DESLIGADO';
+  $('setVib').textContent = settings.vibrate ? '📳 LIGADA' : '📴 DESLIGADA';
+  $('setVib').classList.toggle('off', !settings.vibrate);
+  $('setSens').value = settings.sens;
+  $('setSensVal').textContent = Math.round(settings.sens * 100) + '%';
+}
+$('setSound').addEventListener('click', () => { settings.sound = !settings.sound; saveSettings(); applySettings(); });
+$('soundBtn').addEventListener('click', () => { settings.sound = !settings.sound; saveSettings(); applySettings(); });
+$('setVib').addEventListener('click', () => { settings.vibrate = !settings.vibrate; saveSettings(); applySettings(); if (settings.vibrate && navigator.vibrate) navigator.vibrate(30); });
+$('setSens').addEventListener('input', e => { settings.sens = parseFloat(e.target.value) || 1; saveSettings(); applySettings(); });
+$('setReset').addEventListener('click', () => {
+  if (!confirm('Apagar fase salva, recorde e ranking deste aparelho?')) return;
+  ['skydrift_last_level', 'skydrift_best', 'skydrift_ranking'].forEach(k => { try { localStorage.removeItem(k); } catch (_) { } });
+  $('setScreen').classList.remove('show');
+  showHome();
+});
+function vibrate(ms) { if (settings.vibrate && navigator.vibrate) navigator.vibrate(ms); }
 
 // startLevel: nível usado para gerar a pista; home: cenário da tela inicial (com pórtico de largada)
 function resetWorld(startLevel = 1, home = false) {
@@ -1454,8 +1568,10 @@ function resetWorld(startLevel = 1, home = false) {
   puffs.forEach(p => { scene.remove(p.sp); (p.add ? puffPoolAdd : puffPool).push(p.sp); }); puffs.length = 0;
   clearSkids();
   resetPath();
-  genEnd = 0; genLevel = startLevel; genLevelEnd = levelLen(startLevel);
+  genEnd = 0; genLevel = startLevel; genLevelEnd = levelLen(startLevel); genCpLevel = 0;
   level = startLevel; coins = 0; shake = 0;
+  lives = MAX_LIVES; levelBase = 0; respawnS = CAR_RESET.s; blinkT = 0; car.root.visible = true;
+  renderLives(false);
   Object.assign(car, CAR_RESET);
   updateBody(0, false);
   car.body.rotation.set(0, 0, 0); car.body.position.set(0, 0, 0);
@@ -1473,7 +1589,9 @@ function resetWorld(startLevel = 1, home = false) {
 function loadLastLevel() { try { return Math.max(1, parseInt(localStorage.getItem('skydrift_last_level'), 10) || 1); } catch (_) { return 1; } }
 function saveLastLevel(L) { try { localStorage.setItem('skydrift_last_level', String(L)); } catch (_) { } }
 
-// Tela inicial: monta a pista no começo da última fase jogada
+// Tela inicial: monta a pista no começo da última fase jogada.
+// Não tem botão "jogar": arrastar para cima (ou ↑) já larga a fase.
+let atHome = false;
 function showHome() {
   [ui.pause, ui.over, garage].forEach(s => s.classList.remove('show'));
   const L = loadLastLevel();
@@ -1481,26 +1599,49 @@ function showHome() {
   $('bestStart').textContent = bestText(loadBest());
   resetWorld(L, true);
   ui.start.classList.add('show');
+  atHome = true;
+  showHint('ARRASTE ↑ PARA COMEÇAR');
+}
+const modalOpen = () => !!document.querySelector('.screen.modal.show');
+function beginRun() {
+  atHome = false;
+  Sound.init();
+  ui.start.classList.remove('show');
+  state = 'playing';
+  saveLastLevel(level);
+  showBanner(`FASE ${String(level).padStart(2, '0')}`);
 }
 
-function startGame() {
-  Sound.init();                                 // áudio só pode começar após um toque/clique
-  resetWorld();
-  [ui.start, ui.pause, ui.over].forEach(s => s.classList.remove('show'));
-  state = 'playing';
-  saveLastLevel(1);
-  showHint();
+// Setas 3D na pista mostrando a direção (só na tela inicial)
+const chevGeo = (() => {
+  const s = new THREE.Shape();
+  [[0, 0.75], [1.05, -0.2], [0.72, -0.5], [0, 0.22], [-0.72, -0.5], [-1.05, -0.2]].forEach(([x, y], i) => i ? s.lineTo(x, y) : s.moveTo(x, y));
+  return new THREE.ShapeGeometry(s).rotateX(Math.PI / 2);     // deitada na pista, apontando para +z
+})();
+const chevrons = [0, 1, 2].map(() => {
+  const m = new THREE.Mesh(chevGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+  m.renderOrder = 3; m.visible = false; scene.add(m); return m;
+});
+function updateChevrons() {
+  const on = state === 'menu' && atHome;
+  chevrons.forEach((m, i) => {
+    m.visible = on;
+    if (!on) return;
+    const c = sample(car.s + 4.5 + i * 2.6);
+    m.position.set(c.x, c.y + 0.09, c.z); m.rotation.y = c.h;
+    const k = (time * 1.4 - i * 0.28) % 1;                 // onda de brilho de trás para frente
+    m.material.opacity = 0.25 + 0.75 * Math.max(0, Math.sin(k * Math.PI));
+    m.scale.setScalar(1 + 0.12 * Math.max(0, Math.sin(k * Math.PI)));
+  });
 }
 function togglePause() {
   if (state === 'playing') { state = 'paused'; ui.pause.classList.add('show'); }
   else if (state === 'paused') { Sound.init(); state = 'playing'; ui.pause.classList.remove('show'); clock.getDelta(); }
 }
 // Todo toque na tela garante que o áudio está ativo (navegadores podem suspendê-lo)
+// (inclusive na tela inicial: o primeiro arrasto já larga a corrida com som)
 ['pointerdown', 'touchend', 'click', 'keydown'].forEach(ev =>
-  window.addEventListener(ev, () => { if (state !== 'menu' && state !== 'garage') Sound.init(); }, { capture: true, passive: true }));
-$('soundBtn').addEventListener('click', () => {
-  $('soundBtn').textContent = Sound.toggleMute() ? '🔇 SOM: DESLIGADO' : '🔊 SOM: LIGADO';
-});
+  window.addEventListener(ev, () => Sound.init(), { capture: true, passive: true }));
 /* ---------- Menu inicial → Garagem → Corrida ---------- */
 const garage = $('garageScreen'), swatchBox = $('swatches');
 let skinLoaded = 'red';
@@ -1521,20 +1662,21 @@ CAR_SKINS.forEach(k => {
 selectSkin(skinLoaded);
 
 function openGarage() {
-  Sound.init();
+  atHome = false;
   resetWorld();
   [ui.start, ui.pause, ui.over].forEach(s => s.classList.remove('show'));
+  ui.hint.classList.remove('show');
   garage.classList.add('show');
   state = 'garage';
 }
-$('startBtn').addEventListener('click', openGarage);
-$('homeBtn').addEventListener('click', showHome);
-$('homeBtn2').addEventListener('click', showHome);
-$('raceBtn').addEventListener('click', () => { garage.classList.remove('show'); startGame(); });
-$('backBtn').addEventListener('click', showHome);
+$('garageHomeBtn').addEventListener('click', openGarage);
+$('rankBtn').addEventListener('click', openRanking);
+$('settingsBtn').addEventListener('click', () => { applySettings(); $('setScreen').classList.add('show'); });
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => $(b.dataset.close).classList.remove('show')));
+$('raceBtn').addEventListener('click', showHome);
 $('garageBtn').addEventListener('click', openGarage);
-$('restartBtn').addEventListener('click', startGame);
-$('restartBtn2').addEventListener('click', startGame);
+$('restartBtn').addEventListener('click', showHome);
+$('restartBtn2').addEventListener('click', showHome);
 $('resumeBtn').addEventListener('click', togglePause);
 $('pauseBtn').addEventListener('click', togglePause);
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') togglePause(); });
@@ -1547,6 +1689,8 @@ function loop() {
   const dt = Math.min(0.05, clock.getDelta());
   if (state !== 'paused') {
     time += dt;
+    if (state === 'menu' && atHome && !modalOpen() && throttle() > 0.05) beginRun();
+    if (blinkT > 0) { blinkT -= dt; car.root.visible = blinkT <= 0 || Math.floor(blinkT * 10) % 2 === 0; }
     if (state === 'playing') updatePlaying(dt);
     else if (state === 'falling') updateFalling(dt);
     else if (state === 'crashed') updateCrashed(dt);
@@ -1561,6 +1705,7 @@ function loop() {
     updateClouds();
     updateCamera(dt, false);
     updateStreaks(dt);
+    updateChevrons();
     updateSpeedFx();
     updateHUD();
   }
@@ -1579,5 +1724,6 @@ let lastInMenu = null;
 $('version').textContent = 'v' + VERSION;
 
 // Inicia na tela inicial, com a pista no começo da última fase jogada
+applySettings();
 showHome();
 loop();
