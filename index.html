@@ -9,6 +9,44 @@
   <link rel="stylesheet" href="style.css?v=1.4.0">
 </head>
 <body class="in-menu">
+  <!-- ===== Tela de carregamento: logo da Steamboat Studio + barra de progresso ===== -->
+  <style>
+    #sb-splash { position: fixed; inset: 0; z-index: 2147483000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vmin;
+      background: radial-gradient(circle at 50% 40%, #fffaf0 0%, #f3e6cc 100%); transition: opacity .6s ease; font-family: 'Fredoka', 'Segoe UI Rounded', system-ui, sans-serif; }
+    #sb-splash.hide { opacity: 0; pointer-events: none; }
+    #sb-splash img { width: min(62vmin, 420px); height: auto; animation: sb-in .8s cubic-bezier(.2, 1.4, .4, 1) both, sb-bob 2.4s ease-in-out .8s infinite; }
+    #sb-splash .sb-bar { width: min(56vmin, 360px); height: 24px; padding: 4px; border: 3px solid #0b1d33; border-radius: 999px; background: #fff8ec; box-sizing: border-box; }
+    #sb-splash .sb-fill { width: 0; height: 100%; border-radius: 999px; background: #0b1d33; }
+    #sb-splash .sb-text { color: #0b1d33; font-weight: 600; font-size: 16px; letter-spacing: .08em; opacity: .75; }
+    @keyframes sb-in { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: scale(1); } }
+    @keyframes sb-bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-1.2vmin) rotate(-1.5deg); } }
+  </style>
+  <div id="sb-splash">
+    <img src="img/steamboat-logo.png" alt="Steamboat Studio">
+    <div class="sb-bar"><div class="sb-fill"></div></div>
+    <div class="sb-text">Carregando…</div>
+  </div>
+  <script>
+    // Barra da tela de carregamento: avança sozinha e só completa quando a página terminou de carregar
+    (function () {
+      var MIN_MS = 2600, t0 = Date.now(), loaded = document.readyState === 'complete', shown = 0;
+      var s = document.getElementById('sb-splash'), fill = s.querySelector('.sb-fill');
+      window.addEventListener('load', function () { loaded = true; });
+      function tick() {
+        var t = Math.min(1, (Date.now() - t0) / MIN_MS);
+        var goal = loaded ? t : Math.min(0.9, t);                // sem carregar, para em 90%
+        shown += (goal - shown) * 0.15;
+        if (goal === 1 && shown > 0.995) shown = 1;
+        fill.style.width = (shown * 100).toFixed(1) + '%';
+        if (shown < 1) return requestAnimationFrame(tick);
+        setTimeout(function () {
+          s.classList.add('hide');
+          setTimeout(function () { s.remove(); window.dispatchEvent(new Event('splashdone')); }, 600);
+        }, 250);
+      }
+      requestAnimationFrame(tick);
+    })();
+  </script>
   <!-- Canvas do jogo (também é a área de arrasto) -->
   <canvas id="game"></canvas>
 
